@@ -1,0 +1,151 @@
+---
+title: "Joshua Froess: Homework D for 431"
+author: "Joshua Froess"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+## Load necessary packages
+
+```{r packages, message = FALSE}
+library(magrittr); library(janitor); library(here)
+library(tidyverse)
+```
+
+## Load necessary data
+
+```{r data_load, message=FALSE}
+LBW <- read_csv(here("data", "unicef_lbw.csv.txt"))
+
+dim(LBW)
+```
+
+# Question 1
+
+147 nations have non missing low birth weight. The mosaic shows that out of the 202 nations 55 are missing low birth weight.
+
+```{r nonmissing_LBW}
+LBW %$% mosaic::favstats(~pct_low_birthweight)
+```
+
+
+# Question 2
+
+Bangladesh, Comoros, and Nepal have the three largest low birth weight percentages. They are also all considered to be least developed countries by the United Nations.
+
+```{r top3_LBW}
+LBW %>%
+  filter(complete.cases(pct_low_birthweight),
+         pct_low_birthweight > 20) %>%
+  select(nation, pct_low_birthweight, least_developed)
+```
+
+# Question 3
+
+The median and inter-quartile range would be more appropriate to use for this distribution. The histogram has a right skew to it which means that the standard deviation and mean would not accurately represent the data. The mean would be larger then the median when in reality more of the data are focused on the left side of the graph. This is why the median and inter-quartile range would be represent the data set.
+
+```{r histogram}
+res <- mosaic::favstats(~pct_low_birthweight, data = LBW)
+bin_w <- 2
+
+LBW %>%
+  filter(complete.cases(pct_low_birthweight)) %>%
+  ggplot(., aes(x = pct_low_birthweight)) +
+  geom_histogram(binwidth = 2, fill = "slateblue",
+                 col = "white") +
+  theme_light() +
+  stat_function(fun = function(x) dnorm(x, mean = res$mean,
+                                        sd = res$sd) * res$n * bin_w,
+                col = "red", size = 2) +
+  labs(x = "% Low Birth weight",
+       y = "Number of Countries",
+       title = "% Low Birth Weight Among Different Countries",
+       subtitle = "147 Total Countries")
+```
+
+
+# Question 4
+
+This qq plot is not normally distributed because the tails of the data are going away from the line towards the top of the graph. This means the data is right skewed and is not normally distributed. Normally distributed data closely follows the red qq line and this data is not.
+
+```{r qq_plot}
+LBW %>%
+  filter(complete.cases(pct_low_birthweight)) %>%
+  ggplot(., aes(sample = pct_low_birthweight)) +
+  geom_qq(col = "black") + geom_qq_line(col = "red") +
+  labs(title = "Distribution of % Low Birth weight Among Countries")
+```
+
+# Question 5
+
+Countries that are not defined as least developed countries have a lower percentage of birth weight. Countries that are defined as least developed have a higher percentage of low birth weight. The boxplot shows how the middle 50 percent of the data of least developed countries and all other countries are completely seperated.
+
+```{r boxplot}
+LBW %>%
+  filter(complete.cases(pct_low_birthweight)) %>%
+  ggplot(., aes(x = factor(least_developed), y = pct_low_birthweight,
+                fill = factor(least_developed))) +
+  geom_boxplot() +
+  guides(fill = FALSE) +
+  labs(y = "% Low Birth weight",
+       x = "Developed Countries and Least Developed Countries",
+       title = "% Low Birth weight by Developed and Least Developed Nations",
+       subtitle = "0 = Developed Countries (red); 1 = Least Developed Countries (blue)") +
+  theme_bw()
+```
+
+# Question 6
+
+Using large databases in the healthcare field has become a more common idea. Researchers have turned to databases like EHR, HCUP, and claims data to try and understand diseases better without having to conduct field work. As promising and interesting as this idea seems it possesses many challenges as well. When it came to predicting the financial crisis in 2008, researchers had too much validity in their findings. Most of the data collected from these resources must be carefully analyzed and researchers must keep biases in mind.
+
+Not only must researchers understand that only associations can be seen, they must also understand the collection process of the data. If they do not, they could think the data says more than it actually does. In the 2008 financial crisis, predictive models were relied on when they had no previous information about a financial housing bubble crash. The health care data must also be understood in that way. What is the collection method and what is the validity of all the information that is being seen? These are the types of questions that any researcher must ask themselves when exploring databases.
+
+In an article by Adibuzzaman et al., they talk about how these different health care databases were originally collected for the purpose of billing. It is because of this that researchers must be careful with what they try to make the data say. A researcher could easily go into these large databases and construe information that actually isn't true about a disease. This has been seen before where associations were accidentally believed to be causations. It is because of these challenges that big data can be cherry picked and become harmful in the wrong hands.
+
+References:
+
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5977694/
+
+# Question 7
+
+The 2nd qq plot with 150 observations and a mean of 100 looks to follow a normal distribution the best. The 3rd qq plot only has a sample size of 25 and doesn't seem to follow a normal distribution. This phenomenon shows that larger sample sizes can come closer to showing a normal distribution then smaller sample sizes. All three graphs that have a sample size with 75 and above follow the line of a normal distribution well.
+
+```{r qq_plot_2}
+temp.1 <- data.frame(d = rnorm(75, mean = 100, sd = 10))
+temp.2 <- data.frame(d = rnorm(150, mean = 100, sd = 10))
+temp.3 <- data.frame(d = rnorm(25, mean = 50, sd = 5))
+temp.4 <- data.frame(d = rnorm(225, mean = 150, sd = 15))
+
+p1 <- ggplot(temp.1, aes(sample = d)) +
+  geom_qq(fill = "black") + geom_qq_line(col = "red") +
+  theme_bw()
+
+p2 <- ggplot(temp.2, aes(sample = d)) +
+  geom_qq(fill = "black") + geom_qq_line(col = "red") +
+  theme_bw()
+
+p3 <- ggplot(temp.3, aes(sample = d)) +
+  geom_qq(fill = "black") + geom_qq_line(col = "red") +
+  theme_bw()
+
+p4 <- ggplot(temp.4, aes(sample = d)) +
+  geom_qq(fill = "black") + geom_qq_line(col = "red") +
+  theme_bw()
+
+gridExtra::grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+
+## Session Information
+
+```{r}
+sessionInfo()
+```

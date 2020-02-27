@@ -1,0 +1,342 @@
+---
+title: "Joshua Froess: Homework 3 for 500"
+author: "Joshua Froess"
+date: "2/20/2020"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+## Initial Setup and Loading Packages
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment = NA)
+options(width = 70)
+```
+
+```{r, message=FALSE}
+library(magrittr); library(janitor); library(here)
+library(broom); library(skimr); library(cobalt)
+library(Matching); library(patchwork); library(survival)
+library(tidyverse)
+```
+
+## Load Data
+
+```{r}
+canc <- read.csv(here("data", "canc3.csv.txt")) %>%
+  mutate(typeca = as.factor(typeca))
+```
+
+# Task 1
+
+A logistic regression was used to get an estimate of how the treatment effects the mortality of treatments in this study. If someone is in the treatment group they have 36% less odds of being alive then some in the control group. This is also statistically detectable at the 95% level with a confidence interval of 0.425 to 0.973.
+
+```{r}
+canc_mod1 <- glm(alive ~ treated, data = canc,
+                 family = "binomial")
+
+tidy(canc_mod1, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  knitr::kable(digits = 3)
+```
+
+The second model is using logistic regression to determine if someone will go to hospice based off whether they are in the treatment or control group. This states that someone in the treatment group has 47% higher odds of going to hospice then someone in the control group. This is not statistically detectable at the 95% level with confidence intervals of 0.966 to 2.236.
+
+```{r}
+canc_mod2 <- glm(hospice ~ treated, data = canc,
+                 family = "binomial")
+
+tidy(canc_mod2, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  knitr::kable(digits = 3)
+```
+
+# Task 2
+
+A large model with all the covariates is created to determine a patients `alive` status. The `treated` status doesn't seem to effect whether a patient is alive or dead. This will be tested further using propensity score methods further on. 
+
+```{r}
+psmodel1 <- glm(alive ~ treated + age + female + race +
+                  married + typeca + stprob + charlson + ecog,
+                data = canc, family = "binomial")
+
+tidy(psmodel1, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  knitr::kable(digits = 3)
+```
+
+A logistic regression is then done using all the covariates on a patients `hospice` status. Whether a patient is in the `treated` group doesn't have a statistically detectable effect on the `hospice` status. This will be tested further using propensity score methods later on.
+
+```{r}
+psmodel2 <- glm(hospice ~ treated + age + female + race +
+                  married + typeca + stprob + charlson + ecog,
+                data = canc, family = "binomial")
+
+tidy(psmodel2, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  knitr::kable(digits = 3)
+```
+
+# Task 3
+
+First the raw propensity score and linear propensity score from both models need added to the data. This will help with evaluating how the unadjusted propensity scores look.
+
+```{r}
+canc$ps <- psmodel1$fitted
+canc$linps <- psmodel1$linear.predictors
+canc$ps2 <- psmodel2$fitted
+canc$linps2 <- psmodel2$linear.predictors
+```
+
+## Rubin Rule 1
+
+Rubin's rule 1 is first checked on the model using the `alive` variable as the outcome. Ideally this value should be close to 0 but definitely needs to be below 50%. This is currently at 87.7% which means the first rubin rule has been failed.
+
+```{r}
+rubin1.unadj1 <- with(canc,
+     abs(100*(mean(linps[alive==1])-mean(linps[alive==0]))/sd(linps)))
+rubin1.unadj1
+```
+
+Rubin's rule 1 is then checked on the model using the `hospice` variable as the outcome. This value should also be close to 0 or at least below 50%. This is at 81.5% so this model also fails rubin's first rule.
+
+```{r}
+rubin1.unadj2 <- with(canc,
+     abs(100*(mean(linps2[hospice==1])-mean(linps2[hospice==0]))/sd(linps2)))
+rubin1.unadj2
+```
+
+## Rubin Rule 2
+
+Next rubin's second rule will be checked on the model using the variable `alive` as the outcome. This tests the variance of the linear propensity scores and should be close to 1 but definitely between 0.5 and 2. This model has passed rubin's second rule with a value of 1.8.
+
+```{r}
+rubin2.unadj1 <-with(canc, var(linps[alive==1])/var(linps[alive==0]))
+rubin2.unadj1
+```
+
+Then rubin's second rule is tested on the model with the variable `hospice` as the outcome. This model is showing a value of 0.43 which fails rubin's second rule testing the variance of linear propensity scores.
+
+```{r}
+rubin2.unadj2 <-with(canc, var(linps2[hospice==1])/var(linps2[hospice==0]))
+rubin2.unadj2
+```
+
+## Conclusion of Rubin's Rules
+
+Testing rubin's rules on the two models shows that the balance among these two models unadjusted is poor. The previous models in task 1 and 2 are not well suited at predicting the outcomes unadjusted. Something needs to be done with these covariates to add balance to these models.
+
+# Task 4
+
+A logistic regression is done adjusting for the linear propensity score. This shows that being in the treatment group gives a patient no higher odds of going into hospice compared to someone in the control group.
+
+```{r}
+psmodel3 <- glm(hospice ~ treated + linps2, data = canc, family = "binomial")
+
+tidy(psmodel3, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  knitr::kable(digits = 3)
+```
+
+# Task 5
+
+First five stratums need to be made of the raw propensity scores. The five stratums are shown below going from a group of lowest propensity scores to highest propensity scores.
+
+```{r}
+canc$stratum <- Hmisc::cut2(canc$ps2, g = 5)
+
+canc %>%
+  group_by(stratum) %>%
+  skim_without_charts(ps2)
+```
+
+The five stratums are then labeled by quintile with the first quintile being the lowest propensity scores and the fifth quintile being the highest propensity scores.
+
+```{r}
+canc$quintile <- factor(canc$stratum, labels = 1:5)
+
+canc %>%
+  count(stratum, quintile)
+```
+
+A function calculating standardized differences is the wrote to use to better understand the five quintiles.
+
+```{r}
+szd <- function(covlist, g) {
+  covlist2 <- as.matrix(covlist)
+  g <- as.factor(g)
+  res <- NA
+  for(i in 1:ncol(covlist2)) {
+    cov <- as.numeric(covlist2[,i])
+    num <- 100*diff(tapply(cov, g, mean, na.rm=TRUE))
+    den <- sqrt(mean(tapply(cov, g, var, na.rm=TRUE)))
+    res[i] <- round(num/den,2)
+  }
+  names(res) <- names(covlist)   
+  res
+}
+```
+
+The quintiles are then filtered the be completely seperated so that they can be analyzed individually and as a group later on.
+
+```{r}
+quin1 <- filter(canc, quintile==1)
+quin2 <- filter(canc, quintile==2)
+quin3 <- filter(canc, quintile==3)
+quin4 <- filter(canc, quintile==4)
+quin5 <- filter(canc, quintile==5)
+```
+
+The standardized differences are then calculated to analyze the propensity scores in dot plots. This is done to understand how the different covariates look in each of the quintiles and all together.
+
+```{r}
+covs <- c("age", "female", "race", "married", "typeca", "stprob", 
+          "charlson", "ecog", "ps2", "linps2")
+d.q1 <- szd(quin1[covs], quin1$treated)
+d.q2 <- szd(quin2[covs], quin2$treated)
+d.q3 <- szd(quin3[covs], quin3$treated)
+d.q4 <- szd(quin4[covs], quin4$treated)
+d.q5 <- szd(quin5[covs], quin5$treated)
+d.all <- szd(canc[covs], canc$treated)
+
+canc.szd <- tibble(covs, Overall = d.all, Q1 = d.q1, Q2 = d.q2, Q3 = d.q3, Q4 = d.q4, Q5 = d.q5)
+canc.szd <- gather(canc.szd, "quint", "sz.diff", 2:7)
+```
+
+The six dot plots are shown below of the five different quintiles and the overall. This graphically shows how the standardized differences of the propensity scores change by quintiles and look in the overall data.
+
+```{r}
+ggplot(canc.szd, aes(x = sz.diff, y = reorder(covs, -sz.diff), group = quint)) + 
+    geom_point() +
+    geom_vline(xintercept = 0) +
+    geom_vline(xintercept = c(-10,10), linetype = "dashed", col = "blue") +
+    facet_wrap(~ quint) +
+    labs(x = "Standardized Difference, %", y = "",
+         title = "Comparing Standardized Differences by PS Quintile",
+         subtitle = "A cancer study determining if patients will enter hospice")
+```
+
+A regression summary of the five seperate quintiles is then created below. This gives an estimate of the treated group in each quintile and a p value. This is useful for understanding how patients in each quintiles hospice status is effected by whether they are in the treatment or control group.
+
+```{r}
+quin1_mod <- glm(hospice ~ treated, data = quin1, family = "binomial")
+quin2_mod <- glm(hospice ~ treated, data = quin2, family = "binomial")
+quin3_mod <- glm(hospice ~ treated, data = quin3, family = "binomial")
+quin4_mod <- glm(hospice ~ treated, data = quin4, family = "binomial")
+quin5_mod <- glm(hospice ~ treated, data = quin5, family = "binomial")
+
+coef(summary(quin1_mod)); coef(summary(quin2_mod)); coef(summary(quin3_mod)); 
+coef(summary(quin4_mod)); coef(summary(quin5_mod))
+```
+
+Next the quintiles are combined to get a logistic regression analysis for the sample as a whole.
+
+```{r}
+est.st <- (coef(quin1_mod)[2] + coef(quin2_mod)[2] + coef(quin3_mod)[2] +
+               coef(quin4_mod)[2] + coef(quin5_mod)[2])/5
+se.q1 <- summary(quin1_mod)$coefficients[2,2]
+se.q2 <- summary(quin2_mod)$coefficients[2,2]
+se.q3 <- summary(quin3_mod)$coefficients[2,2]
+se.q4 <- summary(quin4_mod)$coefficients[2,2]
+se.q5 <- summary(quin5_mod)$coefficients[2,2]
+se.st <- sqrt((se.q1^2 + se.q2^2 + se.q3^2 + se.q4^2 + se.q5^2)*(1/25))
+```
+
+An estimate of the logistic regression analysis as a whole is given below. This shows that being in the treatment group gives you 14% less odds of going into hospice then someone in the control group. This is not statistically detectable because the confidence intervals include 0.
+
+```{r}
+strat.result <- tibble(estimate = exp(est.st),
+                            conf.low = exp(est.st - 1.96*se.st),
+                            conf.high = exp(est.st + 1.96*se.st))
+strat.result
+```
+
+# Task 6
+
+Propensity scores will be matched using 1:1 matching without replacement. These samples are first matched into a data frame before further analysis can be done.
+
+```{r}
+X <- canc$linps2
+Tr <- as.logical(canc$treated)
+canc_match <- Match(Tr=Tr, X=X, M = 1, replace = FALSE, ties = FALSE)
+```
+
+## Task 6a
+
+Now that the samples have been matched a balance check will be done using a love plot to check how the standardized differences have changed between the unadjusted and matched samples. The matched samples seem to have a mean difference much closer to 0 with a few matches getting slightly worse after adjustment but the majority have improved.
+
+```{r}
+bal <- bal.tab(canc_match, treated ~ age + female + race + married +
+                 typeca + stprob + charlson + ecog + ps2 + linps2, data = canc)
+
+p <- love.plot(bal, threshold = .1, size = 3,
+               var.order = "unadjusted",
+               title = "Standardized Differences using 1:1 Matching")
+p + theme_bw()
+```
+
+## Task 6b
+
+Next the matched sample will be checked using rubin's first two rules to see if the balance is better using that criteria as well. A data frame of the matches is first made and checked to see that everything looks normal.
+
+```{r}
+matches <- factor(rep(canc_match$index.treated, 2))
+canc.matchedsample <- cbind(matches, canc[c(canc_match$index.control, canc_match$index.treated),])
+
+head(canc.matchedsample)
+```
+
+### Rubin's Rule 1
+
+The unadjusted difference was originally 81.5%.
+
+```{r}
+rubin1.unadj2
+```
+
+The adjusted difference has now reached 3.35% which is much closer to 0 and definitely below 50%. The matching has improved the propensity scores when it comes to rubin's first rule.
+
+```{r}
+rubin1.match <- with(canc.matchedsample,
+      abs(100*(mean(linps2[treated==1])-mean(linps2[treated==0]))/sd(linps2)))
+rubin1.match
+```
+
+### Rubin's Rule 2
+
+The variance was originally 0.43 in the unadjusted sample.
+
+```{r}
+rubin2.unadj2
+```
+
+The matched data now has a variance of 1.04 and the variance wants to be close to 1, but between 0.5 and 2. The matching has improved the data when it comes to rubin's second rule.
+
+```{r}
+rubin2.match <- with(canc.matchedsample, var(linps2[treated==1])/var(linps2[treated==0]))
+rubin2.match
+```
+
+## Task 6c
+
+A logistic regression is then ran using the matched sample to determine how adjusting for the covariates effects the treatment on the outcome. Switching from control to treated gives you 0 higher odds in going to hospice. The confidence interval encompasses 0 which means there is no current indication that the treatment group has an effect on hospice status.
+
+```{r}
+canc.m.model <- clogit(hospice ~ treated + strata(matches), data=canc.matchedsample)
+
+tidy(canc.m.model, exponentiate = TRUE, conf.int = TRUE)
+```
+
+# Task 7
+
+In Task 1 the treatment estimate looked like it might have some affect on a patients hospice status since it was above 1 and close to being statistically detectable. As more models got built using propensity score methods to adjusted for the covariate effects this didn't seem to be the case. Each model that was built adjusting for covariates was coming to the conclusion that a relationship between treatment and hospice status can not currently be seen with this sample size. The estimated odds of the treatment in the match sample even hit 0 95% CI: (0.598, 1.673). 
+
+## Session Information
+
+```{r}
+sessioninfo::session_info()
+```
+
+

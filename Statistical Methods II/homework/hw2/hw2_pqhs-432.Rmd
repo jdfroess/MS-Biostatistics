@@ -1,0 +1,118 @@
+---
+title: "Joshua Froess: Homework 2 for 432"
+author: "Joshua Froess"
+date: "2/4/2020"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+## Initial setup loading packages
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment = NA)
+options(width = 70)
+```
+
+```{r library, message=FALSE}
+library(magrittr); library(janitor); library(here)
+library(broom); library(tidyverse)
+```
+
+# Question 1
+
+```{r}
+oh_county <- read.csv(here("data", "oh_counties_2017.txt")) %>%
+  clean_names() %>%
+  mutate(income_cat = ifelse(median_income < 50000, "less than 50k", "greater or equal to 50k"))
+```
+
+A summary of `median_income` was ran to find the mean and the median and decide on a good cut off point for the graph below. Since both the mean and median are around 50,000 that was determined to be a good cut off point.
+
+```{r}
+mosaic::favstats(~ median_income, data = oh_county)
+```
+
+This graph shows Ohio counties by the percentage of low birth weight and the percentage of smoking. The counties that are highlighted in blue have a median income of less than 50,000 while the counties highlighted in red have a median income greater than or equal to 50,000. Counties with a high percentage of smoking and low birth weight are clumped in the top right area, while counties with a low percentage of low birth weight and smoking are in the bottome left.
+
+```{r}
+ggplot(oh_county, aes(x = smoker_pct, y = lbw_pct,
+                      color = income_cat)) +
+  geom_point(size = 2) +
+  labs(x = "Smoking %",
+       y = "Low Birth Weight % (< 2500 grams)",
+       title = "% of low birth weight by % of smoking in Ohio Counties",
+       subtitle = "by whether the county has < $50,000 median income",
+       color = "Median Income") +
+  theme_bw() +
+  theme(legend.position = "bottom") + 
+  scale_color_manual(values = c("firebrick1", "slateblue2"))
+```
+
+# Question 2
+
+The scatterplot above was created to tell a story about the correlation between low birth weight, smoking, and median income level in Ohio counties. To best understand the correlation between these variables a scatter plot was made. A scatter plot was determined to be used because each dot would represent one of the 88 Ohio counties. The visualization was then designed to specifically draw the eye into the two most important parts of this scatterplot: the bottom left and top right. The bottom left is counties with a low percentage of low birth weight and smoking, and high median income. While the top right is counties with a high percentage of low birth weight and smoking, and low median income. By having the eye drawn to these two parts of the scatter plot the relationship between these three variables can be understood easily. Every visualization should aim to make the audience quickly and easily understand the relationship between the variables that are being studied.
+
+# Question 3
+
+This linear model predicts the obese percentage for counties in Ohio using the predictors `food_env` and `median_income`. This implies that for every 1 percentage point increase in `obese_pct` in a county we would anticipate the `food_env` to increase by 1.14 (90% CI: 0.23, 2.05). If we had two counties with the exact same `median_income` but one had an `obese_pct` that was 5% higher then the other county, we would predict that `food_env` would increase by 5.7 (90% CI: 1.15, 10.25).
+
+```{r}
+oh_m1 <- lm(obese_pct ~ food_env + median_income, data = oh_county)
+
+tidy(oh_m1, conf.int = TRUE, conf.level = 0.90) %>%
+  select(term, estimate, std.error, conf.low, conf.high) %>%
+  knitr::kable(digits = 6)
+```
+
+# Question 4
+
+All the plots are useful for checking violations of the regression assumptions. The residuals vs. fitted plot doesn't show any clear trends and is relatively straight, other then a few small bends. The non-linearity assumption assumption does not seem to be violated. The Normal Q-Q plot is straight other than a few outliers on the edges of the plot, this suggests the data is normal and does not violate the normality assumption. The scale-location plot is straight other then a small upward bend on the edge suggesting that the non-constant variance assumption is not violated. The scale-location plot also shows three values: 42, 54, and 3. These values are under predictions of the model. These are the counties Knox, Mercer, and Ashland and in each case the prediction was smaller then the actual `obese_pct` for these counties. This suggests that the predictor variables `food_env` and `median_income` are not good at finding the `obese_pct` for these three counties.
+
+```{r}
+plot(oh_m1)
+```
+
+# Question 5
+
+The model below is predicting whether a county did not have the presence of a water violation using the variables `sev_housing` and `pm2_5`. The odds of a county not having a water violation with a 1% increase in households with housing problems is 1.026 (90% CI: 0.89, 1.19). This means if there was two counties with the same `pm2_5` and one county had a 1% increase in housing problems, that county would have 1.026 (90% CI: 0.89, 1.19) higher odds of not having the presence of a water violation.
+
+```{r}
+oh_m2 <- glm(h2oviol ~ sev_housing + pm2_5, data = oh_county, family = "binomial")
+tidy(oh_m2, exponentiate = TRUE, conf.int = TRUE, conf.level = 0.90) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  knitr::kable(digits = 3)
+```
+
+# Question 6
+
+Confusion matrix interpretation:
+
+- The sensitivity of predictions or the amount of counties that actually had a water violation and were predicted to have one was 15/42 = 35.7%. 
+- The specificity of predictions or the amount of counties that did not have a water violation and were predicted to not have one was 33/46 = 71.7%. 
+- The positive predictive value is the predictions of a county having a water violation that were correctly predicted and is 15/28 = 53.6%.
+- The negative predictive value is the predictions of a county not having a water violation that were correctly predicted and is 33/60 = 55%. 
+- With 48/88 correct predictions made the overall accuracy of predictions is 54.5%.
+
+```{r}
+oh_m2_aug <- augment(oh_m2, oh_county,
+                     type.predict = "response")
+confuse_oh <- 
+  oh_m2_aug %>%
+  mutate(h2oviol_predicted = factor(.fitted >= 0.5),
+         h2oviol_actual = factor(h2oviol == "Yes"),
+         h2oviol_predicted = fct_relevel(h2oviol_predicted, "TRUE"),
+         h2oviol_actual = fct_relevel(h2oviol_actual, "TRUE")) %$%
+  table(h2oviol_predicted, h2oviol_actual)
+
+confuse_oh
+```
+
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
+

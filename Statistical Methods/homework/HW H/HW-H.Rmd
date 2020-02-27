@@ -1,0 +1,116 @@
+---
+title: "Joshua Froess: Homework H for 431"
+author: "Joshua Froess"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+## Load necessary packages
+
+```{r packages, message = FALSE}
+library(magrittr); library(janitor); library(here)
+library(broom); library(tidyverse)
+```
+
+## Load necessary data
+
+```{r data_load, message=FALSE}
+data1 <- read_csv(here("data", "hwH_data1.txt")) %>%
+  mutate(PDS = (age-subj_age)/age)
+```
+
+# Question 1
+
+Butler, J., Greene, S. J., Shah, S. H., Shah, S. J., Anstrom, K. J., Kim, R. J., … Braunwald, E. (2019). Diastolic Dysfunction in Patients with Human Immunodeficiency Virus Receiving Antiretroviral Therapy: Results from the CHART Study. Journal of Cardiac Failure. doi: 10.1016/j.cardfail.2019.10.011
+
+![Quality of Life Scores of HIV+ Patients with and without Diastolic Dysfunction](C:/Users/jdfro/OneDrive/Pictures/Saved Pictures/dd_431.jpg)
+
+
+# Question 2
+
+The primary hypothesis of the authors is despite similar ART and viral suppression, HIV+ patients with diastolic dysfunction demonstrate a higher degree of systematic inflammation, myocardial fibrosis, and left atrial dysfunction than HIV+ patients without diastolic dysfunction. The graphical comparison doesn't directly answer the authors questions about these cardiovascular profiles, but helps them understand the quality of life of these patients. For everything except for the quality of life score the p values show a statistically detectable difference between the patients with diastolic dysfunction and without. This is important becasue overall I believe these authors are trying to understand how diastolic dysfunction affects HIV+ patients. This graph shows that HIV+ patients with diastolic dysfunction self report worse quality of life, which agrees with the biomarkers the researchers found.
+
+# Question 3
+
+The authors are comparing quality of life scores among HIV+ patients with diastolic dysfunction and without. They use a histogram to show how the patients self reported their scores in the two groups. The histogram is trying to show the clear trend that diastolic dysfunction patients report worse health overall. This is effective because it is easy to look at and understand what each category is and that the diastolic dysfunction patients are worse in almost all the categories.
+
+# Question 4
+
+How high the HIV+ patients without diastolic dysfunction reported across the board for the survey suprised me. I believe the only thing I would have like to add to the visualization is HIV- patients taking the survey without diastolic dysfunction. Since the survey scored on a scale of 0 to 100 and patients means were in the 80s or 90s when both groups were HIV+ was something I wanted explained more by the authors. Other then that the graph represented the question the authors were looking at well and supported the biomarkers they found in other figures throughout their paper.
+
+# Question 5
+
+The difference between the two files is the fact that the data2 repeats the sujects twice for each age type of chronological or subjective. The data1 file does not do this and instead has two different categories for each subject. These categories are age, which is there chronological age, and subj_age, which is there subjective age. This means everything is numerical in data1, while the data2 category of age_type is a binary chronological or subjective variable. Since everything is numerical in data1 and chronolgical and subjective age are listed for each subject; this data set will be better for calculating the PDS mean.
+
+# Question 6
+
+The PDS means are calculated above by taking the chronological age minus the subjective age divided by the chronological age. The PDS means are seen below among three groups: A, B, and C. Group A has the highest PDS mean, group C has middle PDS mean, while group B has the lowest PDS mean.
+
+```{r}
+mosaic::favstats(PDS ~ category, data = data1) %>%
+  knitr::kable(digits = 3)
+```
+
+# Question 7
+
+The graphical representation is a violin plot since the groups are multi-categorical data. They show that there are outliers in each of the groups with the medians being very similar. Analysis variance wants a normal distribution, but is flexible to this factor. So the issues that are seen among the three groups shouldn't be a big deal.
+
+```{r}
+ggplot(data1, aes(x = category, y = PDS, fill = category)) +
+  geom_violin() +
+  geom_boxplot() +
+  guides(fill = FALSE) +
+  labs(x = "Group the Patient was in: A, B, or C",
+       y = "PDS",
+       title = "PDS Score of Patients in Groups A, B, or C",
+       subtitle = "PDS is chronological age minus subjective age divided by chronolgical age") +
+  theme_bw()
+```
+
+# Question 8
+
+The anova shows there is no statistical detecable difference at confidence level of 90%. Since there is no statistically detecable difference it is known that the three groups are not different.
+
+```{r}
+anova(lm(PDS ~ category, data = data1))
+```
+
+# Question 9
+
+There is a difference in the two tests. The bonferroni is showing a p value of 1 in each category and the TukeyHSD is showing different p values. Both tests show no statistically detectable difference, but show different p values among the categories. The TukeyHSD also shows a range of each category by providing a confidence level and each group has a range including zero.
+
+```{r}
+pairwise.t.test(data1$PDS, data1$category, p.adjust.method = "bonf")
+```
+
+```{r}
+PDS_tukey <- tidy(TukeyHSD(aov(lm(PDS ~ category, data = data1)), conf.level = 0.9, ordered = TRUE))
+  knitr::kable(PDS_tukey, digits = 3)
+```
+
+# Question 10
+
+When adjusting for activity about 1.6% of the variation is explained by question 10. This is explains about 1.5% more of the variation then the linear model not accounting for activity. This can be determined by looking at the R squared values, which are a proportion of the variation described by the linear models.
+
+```{r}
+summary(lm(PDS ~ category, data = data1))
+```
+
+
+```{r}
+summary(lm(PDS ~ category + active, data = data1))
+```
+
+## Session Information
+
+```{r}
+sessionInfo()
+```

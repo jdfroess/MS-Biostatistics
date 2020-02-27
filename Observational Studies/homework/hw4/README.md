@@ -1,1 +1,3 @@
+# Homework 4 Description
 
+This assignment included further understanding of propensity score methods by focusing on weighting. Weighting was done using a non-automated approach and using the `twang` package for an automated approach. The balance of propensity scores after weighting was also checked using rubin's rules and love plots. Double robust methods that included weighting and adjustment using linear propensity scores were also done and both the double robust methods and weighting were put into a outcome model. These outcome models were compared to the original models made before balancing the propensity scores. 

@@ -1,0 +1,212 @@
+---
+title: 'Joshua Froess: Homework 1 for 432'
+author: "Joshua Froess"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+## Load Packages
+
+```{r message=FALSE}
+library(janitor); library(magrittr); library(here)
+library(simputation); library(tableone); library(broom)
+library(patchwork); library(tidyverse)
+
+theme_set(theme_bw())
+```
+
+# Question 1
+
+## Data Load
+
+This is loading the data into R and making any variables that have blanks in the data now have an NA. This will be important when dealing with missing data before making the table one for the hbp data.
+
+```{r}
+hbp <- read.csv(here("data", "hbp432.csv.txt")) %>%
+  na_if("") %>%
+  clean_names()
+```
+
+## Creating Table One
+
+When creating the table one a few variables will need to be created first. `bmi` and `bmi_cat` aren't originally in the data so they have been created. `bmi` was made using `height` and `weight` from the data and the formula kg/m^2. Once `bmi` was created `bmi_cat` was then made using the CDC definitions for underweight, normal, overweight, and obese. The variable `race` was then releveled so that white and black would be seen first since these are commonly talked about in research. The variable `bmi_cat` was releveled next to go in the order of lowest weight class to highest weight classification. Next, the data was filtered so that only practices A and C would be seen in the data and could be compared. All the variables that will be in the table one had the NA values dropped from the data as well.
+
+```{r}
+hbp_table1 <- hbp %>%
+  mutate(bmi = (weight)/(height)^2,
+         bmi_cat = ifelse(bmi <18.5, "underweight",
+                   ifelse(bmi >= 18.5 & bmi <= 24.9, "normal",
+                   ifelse(bmi > 24.9 & bmi <= 29.9, "overweight", "obese"))),
+         race = fct_relevel(race, "White", "Black/AA", "Asian/PI", "Multiracial"),
+         bmi_cat = fct_relevel(bmi_cat, "underweight", "normal", "overweight", "obese")) %>%
+  filter(practice == "A" | practice == "C",
+        complete.cases(age, race, eth_hisp, sex, 
+                      height, weight, sbp, dbp, bmi, bmi_cat)) %>%
+  droplevels()
+
+hbp_table1 %>%
+  tabyl(practice, bmi_cat)
+```
+
+All the variables that will be in table one were then checked to see that all missing data had been dealt with. All the variables that will be in table one now show no missing values. 
+
+```{r}
+colSums(is.na(hbp_table1))
+```
+
+## Normal QQ Plot
+
+Normal Q-Q plots were made to assess the normality of the continuous variables distribution that would be used in table one. This will help determine whether mean and standard deviation or median and interquartile range should be used.
+
+```{r}
+p1 <- ggplot(hbp_table1, aes(sample = age)) +
+  geom_qq() + geom_qq_line(col = "firebrick4") +
+  labs(title = "Age")
+
+p2 <- ggplot(hbp_table1, aes(sample = bmi)) +
+  geom_qq() + geom_qq_line(col = "firebrick4") +
+  labs(title = "BMI")
+
+p3 <- ggplot(hbp_table1, aes(sample = dbp)) +
+  geom_qq() + geom_qq_line(col = "firebrick4") +
+  labs(title = "DBP")
+
+p4 <- ggplot(hbp_table1, aes(sample = sbp)) +
+  geom_qq() + geom_qq_line(col = "firebrick4") +
+  labs(title = "SBP")
+
+gridExtra::grid.arrange(p1, p2, p3, p4, nrow = 2,
+                        top = "Normal QQ Plots of Continuous Variables")
+```
+
+## Complete Table One
+
+```{r}
+hbp.vars <- c("age", "race", "eth_hisp", "sex",
+              "bmi", "bmi_cat","sbp", "dbp")
+
+hbp.trt <- c("practice")
+
+hbp.tbl1 <- CreateTableOne(data = hbp_table1,
+                           vars = hbp.vars,
+                           strata = hbp.trt)
+print(hbp.tbl1,
+      nonnormal = c("sbp", "age"))
+```
+
+- There was one missing value for the variables `bmi`, `bmi_cat`, `eth_hisp`, and `race`, that was eliminated for this analysis.
+- Fisher exact tests were not used for categorical variables because smaller sample sizes in the categories do not seem to be affecting the Pearson test.
+- The median and IQR were used for the `age` and `sbp` because outliers were seen from the Normal Q-Q plot above.
+- The table one shows the practice A has much more black/AA patients compared to practice C, while practice C has much more white patients compared to practice A with `race` being statistically detectable at the 5% level.
+- The mean `bmi` and `dbp` is also higher in practice C compared to practice A with a statistically detectable difference at the 5% level for both the variables.
+- The median `age` is lower for practice C compared to practice A with a statistically detectable difference at the 5% level.
+- Practice A has a lower percentage of obese patients and a higher percentage of normal patients for `bmi_cat` compared to practice C, with `bmi_cat` being statistically detectablly different at the 5% level.
+
+# Question 2
+
+## Check for Missingness
+
+The data must first be checked for missingness among the three variables of interest: `sbp`, `insurance`, and `bpmed`. It seems that `sbp` has one missing value in it so that should be imputed before making a model.
+
+```{r}
+colSums(is.na(hbp))
+```
+
+## Simple Imputation
+
+Simple imputation is done to deal with the missing value in `sbp` and then the data is checked to make sure there is no missingness in the variables of interest. This shows no missingness in the three variables `sbp`, `insurance`, and `bpmed`.
+
+```{r}
+set.seed(20202601)
+hbp <- hbp %>%
+  data.frame() %>%
+  impute_rhd(., sbp ~ 1) %>%
+  tbl_df()
+
+colSums(is.na(hbp))
+```
+
+## Visualizing Data
+
+Before checking for an interaction term the data should be visualized to see how `sbp` is different by `insurance` and whether the patients were on a `bpmed`. For patients using a `bpmed` there seems to be more outliers on the right had side of the graph. For patients in the uninsured category the range seems tighter then the other categories of `insurance`. The range also seems larger for patients on a `bpmed` and on Medicaid then patients not on a `bpmed`. The `bpmed` categories seem to have slight differences of range and medians.
+
+```{r}
+ggplot(hbp, aes(x = insurance, y = sbp, 
+                      fill = factor(bpmed))) +
+  geom_violin(alpha = 0.4) +
+  geom_boxplot(width = 0.2) +
+  facet_wrap(~ bpmed, labeller = label_both) +
+  coord_flip() +
+  guides(fill = FALSE)
+```
+
+## Checking Interaction Term
+
+To check to see if an interaction term works with this data first the data need organized so that the patients `insurance` by their `bpmed` is organized by the mean of `sbp`.
+
+```{r}
+hbp_interaction <- hbp %>%
+  group_by(insurance, bpmed) %>%
+  summarize(n = n(), mean = mean(sbp), stdev = sd(sbp))
+
+hbp_interaction %>%
+  knitr::kable(digits = 2)
+```
+
+An interaction plot is then ran using the way the data was organized above. This plot shows that there are not many differences between `insurance` by `bpmed`. The only `insurance` category that is different by `bpmed` is the uninsured patients. The other insurance categories are relatively parallel. Since the only large differences in the plot are among the uninsured category by `bpmed` this could suggest that the interaction term won't be useful for the model. Before that will be determined an ANOVA will be run on a model with the interaction term.
+
+```{r}
+ggplot(hbp_interaction, aes(x = insurance, y = mean,
+                       col = factor(bpmed))) +
+  geom_point(size = 2) +
+  geom_line(aes(group = (bpmed))) +
+  labs(y = "Systolic Blood Pressure",
+       x = "Type of Insurance",
+       title = "Observed Means for SBP", 
+       subtitle = "by insurance type and blood pressure medication")
+```
+
+To further investigate whether the interaction term is necessary an ANOVA of the model shows how much variation the interaction term is accounting for. This can be done by first adding together the Sum Sq values: 1352 + 2092 + 1244 + 147179 = 151867. The variation can then be determined by dividing the interaction term by the sum of the Sum Sq values, which equals: 1244/151867 = 0.0082. The interaction term is accounting for about 0.82% of the variation seen in this model. The ANOVA table also shows that the interaction term is not statistically detectable. All of this evidence leads to building a model without the interaction term.
+
+```{r}
+hbp_model <- lm(sbp ~ insurance * bpmed, data = hbp)
+
+anova(hbp_model)
+```
+
+## The Model without an Interaction Term
+
+```{r}
+hbp_model2 <- lm(sbp ~ insurance + bpmed, data = hbp)
+
+tidy(hbp_model2, conf.int = TRUE, conf.level = 0.90) %>%
+  select(term, estimate, std.error, conf.low, conf.high) %>%
+  knitr::kable(digits = 3)
+```
+
+A linear model was ran without an interaction term to predict `sbp` using `insurance` and `bpmed`:
+
+- The predictor `bpmed` is statistically detectable at the 10% level because the confidence intervals do not include zero.
+- Nothing else is statistically detectable at the 10% level because the confidence intervals do include zero for all the other variables.
+- This model predicts that if everything else was constant a person who is prescribed a blood pressure medication will have a 4.964 higher `sbp` then someone who is not prescribed a blood pressure medication.
+
+# Question 3
+
+In the Art of Statistics it is stated that models just give estimations of the prediction you are making. In the example in the book they point to how every child with a father an inch taller wouldn't always grow 0.33 inches. Instead, this is an average estimation of how much taller a child would be because of their fathers height. This embodies the phrase "all models are wrong, but some are useful". The model that was done for question 2 also embodies this phrase, for it is wrong, but could be useful.
+
+This linear model is trying to predict systolic blood pressure using insurance type and whether a patient was prescribed a blood pressure medication. When presenting this model many limitations must be kept in mind. This model is useful to think about the relationship between the statistically detectable difference between the SBP levels of people who have been prescribed a blood pressure medication and those who have not. It is useful to think about this relationship because the model can raise questions as to why these groups are different, and that the difference doesn't seem to be because of random error in this population. However, this model is not useful at determining any directionality for this relationship. Keeping limitations in mind while presenting this model, or any model, is extremely important to showing how your model can be useful.
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
+

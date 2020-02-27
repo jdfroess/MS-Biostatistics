@@ -1,0 +1,68 @@
+---
+title: "Joshua Froess: Homework 5 for 435"
+author: "Joshua Froess"
+date: "2/26/2020"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+## Initial Setup and Loading Libraries
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment = NA)
+options(width = 70)
+```
+
+```{r, message=FALSE}
+library(magrittr); library(janitor); library(here)
+library(survival); library(patchwork); library(survminer)
+library(tidyverse)
+```
+
+# Loading Data
+
+First the data about patients with a malignant tumour in the kidney is loaded.
+
+```{r, message=FALSE}
+kidney <- read_csv(here("data", "kidney.csv"))
+
+head(kidney)
+```
+
+Next a new variable is created called `km_cat`. This variable will be used to create a kaplan-meier graph later on for the specific groups 1 and 2 in the `km_cat` variable. A sanity check is also done to make sure the variable was properly made and filtered down to only the categories 1 and 2.
+
+```{r}
+kidney_km <- kidney %>%
+  mutate(km_cat = ifelse(age < 2 & neph < 1, 1,
+                  ifelse(age > 1 & age < 3 & neph > 0, 2, 3))) %>%
+  filter(km_cat == 1 | km_cat == 2)
+
+kidney_km %>%
+  tabyl(km_cat)
+```
+
+# Cox Model
+
+The cox model on the survival of the patients with kidney tumours shows that the nephrectomy status of patients is statistically detectable at the 95% level. This means that patients that got a nephrectomy are statistically different then patients that did not get a nephrectomy. It should be kept in mind that the sample size for patients that did not get a nephrectomy is realitvely small and may not be completely representative of this procedure.
+
+```{r}
+coxph(Surv(survt, censor) ~ age + neph, data = kidney)
+```
+
+# Kaplan-Meier Plot
+
+A kaplan-meier plot is then made for patients by nephrectomy status and age. Specifically, the red line represents patients that did not have a nephrectomy and were under the age of 60. The blue line represents patients that had a nephrectomy and were between the ages of 60 and 70.
+
+```{r}
+ggsurvplot(
+  fit = survfit(Surv(survt, censor) ~ km_cat, data = kidney_km),
+  xlab = "Days",
+  ylab = "Survival Probability",
+  title = "Patients with kidney tumour by nephrectomy and age status",
+  legend = "bottom",
+  legend.labs = c("no nephrectomy & age < 60", "nephrectomy & 60 < age < 70"),
+  pval = TRUE)
+```
+

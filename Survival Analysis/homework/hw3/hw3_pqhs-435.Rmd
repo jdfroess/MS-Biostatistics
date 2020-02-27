@@ -1,0 +1,64 @@
+---
+title: 'Joshua Froess: Homework 3 for 435'
+author: "Joshua Froess"
+date: "2/5/2020"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+## Initial Setup Loading Packages
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment = NA)
+options(width = 70)
+```
+
+```{r library, message=FALSE}
+library(magrittr); library(janitor); library(here)
+library(broom); library(survival); library(tidyverse)
+```
+
+# Data Set
+
+```{r}
+hw3 <- read.csv(here("data", "surv_blck_dcks.csv")) %>%
+  clean_names()
+hw3
+```
+
+# Log Rank Test
+
+```{r}
+hw3 %>%
+  survdiff(formula = Surv(time, status) ~ treat)
+```
+
+Log rank test interpretation:
+
+- The p value for the two groups is 0.2, which means no statistically detectable difference is seen between the two groups for bladder cancer recurrence.
+- The null hypothesis cannot be rejected because the p value is > 0.05.
+- This means there is currently not enough data or sample size to see a difference in bladder cancer recurrence among patients taking a placebo and patients taking thiotepa.
+
+# Kaplan-Meier
+
+The overall survival of patients taking a placebo and patients taking thiotepa is seen in the graph below. The thiotepa group has slightly better overall survival in the two month span then the placebo. Even though there is no statistically detectable difference between the two groups it appears that the thiotepa group could be slightly better. It is possible that this could just be do to random error so more studies will need to be done.
+
+```{r}
+plot(survfit(Surv(time, status) ~ treat, data = hw3),
+     xlab = "Days",
+     ylab = "Overall Survival Probability",
+     main = "Recurrence of Bladder Cancer Among a Placebo and Thiotepa",
+     lty = 1:2)
+legend("bottomleft", legend = c("Placebo", "Thiotepa"),
+       lty = 1:2)
+```
+
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
+

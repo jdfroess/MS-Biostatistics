@@ -1,0 +1,68 @@
+---
+title: "Joshua Froess: Homework 2 for 459"
+author: "Joshua Froess"
+date: "1/29/2020"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment = NA)
+options(width = 70)
+```
+
+## Loading Packages and Data
+
+```{r message=FALSE}
+library(magrittr); library(janitor); library(here)
+library(survival); library(tidyverse)
+```
+
+```{r}
+cah <- read.csv(here("data", "cah1.csv"))
+
+cah
+```
+
+## Filtering Data
+
+The data was filtered into two different treatment groups so that the two kaplan-meier survival graphs could be made. Above is the full data set with all 44 subjects that were in either the prednisolone or control group. In the status group a 1 means that an event happened and a 0 means that this subject was censored. This is the ordering that R uses to calculate a kaplan-meier graph so the data was represented that way.
+
+```{r}
+cah1 <- cah %>%
+  filter(treatment == "prednisolone") %>%
+  droplevels()
+
+cah2 <- cah %>%
+  filter(treatment == "control") %>%
+  droplevels()
+```
+
+## Prednisolone Kaplan-Meier Graph
+
+The first kaplan-meier graph represents the 22 patients in the prednisolone group. Each notch in the graph is when an event occured and the overall survival decreased. The dashed lines represent the confindence bands for the overall survival in this graph. Around 160 months the trial ends and the survival probability seems to be around 0.3.
+
+```{r}
+plot(survfit(Surv(survival, status) ~ 1, data = cah1),
+     xlab = "Months",
+     ylab = "Overall Survival Probability")
+```
+
+## Control Kaplan-Meier Gaph
+
+This graph represents the overall survival in months of the control group. The dashed lines in this graph also represent the confidence band of the overall survival throughout this trial. The most noticeable difference between the control and prednisolone group is the fact that the control group has more events happening early and then all patients become censored around 60-70 months. The overall survival for this graph also looks to be slightly lower and closer to 0.2 then the graph of the prednisolone group. 
+
+```{r}
+plot(survfit(Surv(survival, status) ~ 1, data = cah2),
+     xlab = "Months",
+     ylab = "Overall Survival Probability")
+```
+
+## Session Information
+
+```{r}
+sessionInfo()
+```
+

@@ -1,0 +1,60 @@
+---
+title: "Homework 1: PQHS 435"
+author: "Joshua Froess"
+date: "1/21/2020"
+output: html_document
+---
+
+# Initial Setup and Data Load
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+
+```{r message=FALSE}
+library(magrittr); library(readxl); library(lubridate)
+library(here); library(janitor); library(tidyverse)
+```
+
+# Import and Mutate Data
+
+```{r}
+nsclc <- read_xls(here("data", "nsclc.xls"))
+```
+
+```{r}
+nsclc <- nsclc %>% 
+  mutate(dotx = ymd(dotx),
+         dod = ymd(dod),
+         dols = ymd(dols),
+         dop = ymd(dop))
+
+nsclc
+```
+
+# Calculate Overall Survival and Progression Free Survival
+
+```{r}
+nsclc <- nsclc %>%
+  mutate(os_week = ifelse((!is.na(dols) & (dols < dod)) | (is.na(dod)), 
+                   as.numeric(difftime(dols, dotx, units = "weeks")),
+                   as.numeric(difftime(dod, dotx, units = "weeks"))),
+         os_cens = ifelse(is.na(dod), 0, 1),
+         pfs_week = ifelse(!is.na(dop),  
+                  as.numeric(difftime(dop, dotx, units = "weeks")),
+                  ifelse(!is.na(dod), 
+                         as.numeric(difftime(dod, dotx, units = "weeks")),
+                         as.numeric(difftime(dols, dotx, units = "weeks")))),
+         pfs_cens = ifelse(is.na(dop) & is.na(dod), 0, 1))
+
+nsclc
+```
+
+## Session Information
+
+```{r}
+sessionInfo()
+```
+

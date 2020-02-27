@@ -1,0 +1,252 @@
+---
+title: 'Joshua Froess: Homework 4 for 500'
+author: "Joshua Froess"
+date: "2/27/2020"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+## Initial Setup and Loading Packages
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment = NA)
+options(width = 70)
+```
+
+```{r, message=FALSE}
+library(magrittr); library(janitor); library(here)
+library(broom); library(twang); library(cobalt)
+library(survey); library(tidyverse)
+```
+
+# Task 1
+
+First the simulated data set of 400 subjects with cancer is loaded to do weighted propensity score analysis. The `typeca` variable will then be turned into a factor instead of a numeric variable.
+
+```{r, message=FALSE}
+canc <- read_csv(here("data", "canc3.csv.txt")) %>%
+  mutate(typeca = as.factor(typeca))
+
+head(canc)
+```
+
+The model that will be used to create propensity scores will use every variable as a covariate and the outcome variable will be `hospice`.
+
+```{r}
+psmodel <- glm(hospice ~ treated + age + female + race +
+                  married + typeca + stprob + charlson + ecog,
+                data = canc, family = "binomial")
+
+tidy(psmodel, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  knitr::kable(digits = 3)
+```
+
+```{r}
+psmodel2 <- glm(alive ~ treated + age + female + race +
+                  married + typeca + stprob + charlson + ecog,
+                data = canc, family = "binomial")
+
+tidy(psmodel2, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  knitr::kable(digits = 3)
+```
+
+The raw propensity score and the linear propensity score are then created and added to the `canc` data set.
+
+```{r}
+canc$ps <- psmodel$fitted
+canc$linps <- psmodel$linear.predictors
+canc$ps2 <- psmodel2$fitted
+canc$linps2 <- psmodel2$linear.predictors
+```
+
+Weights then need to be created by making the treated group 1 and the control group 1 minus the raw propensity scores. The treated group is then created into a factor variable to be used in the plot below.
+
+```{r}
+canc$wts1 <- ifelse(canc$treated==1, 1, canc$ps/(1-canc$ps))
+canc$treated_f <- factor(canc$treated, levels = c(1,0),
+                         labels = c("Treated", "Control"))
+```
+
+The treated group on the left shows that every weight is 1 while the propensity scores change on the bottom for the different patients that have been treated. The control group shows that lower propensity scores get lower weights, while higher propensity scores get higher weights. Changing the weights of the control group helps better match to treated patients which is the group we will care about more in this study.
+
+```{r}
+ggplot(canc, aes(x = ps, y = wts1, color = treated_f)) +
+  geom_point() +
+  facet_wrap(~ treated_f) +
+  labs(x = "Estimated Propensity for Treatment",
+       y = "ATT Weights",
+       title = "ATT weighting structure for 400 cancer patients")
+```
+
+# Task 2
+
+First, a data set called `canc_df` is created because the `twang` package doesn't work well with tibbles. All of the covariates are then put into a variable `covlist` to be used for balancing the weighting that was done previously. The weights are then balanced using the `dx.wts` function and show:
+
+- The estimated control group after weighting is lowered to around 150 patients.
+- This shows that around 150 patients fit well with the 150 patients in the treated group.
+
+```{r}
+canc_df <- base::data.frame(canc)
+
+covlist <- c("age", "female", "race", "married",
+             "typeca", "stprob", "charlson", "ecog", "ps", "linps")
+
+bal.wts1 <- dx.wts(x=canc_df$wts1, data = canc_df, vars = covlist,
+                   treat.var = "treated", estimand = "ATT")
+
+bal.wts1
+```
+
+# Task 3
+
+The `std.eff.sz` is a proportion of the standardized differences so when looking at these this will need turned into a percentage.
+
+```{r}
+bal.table(bal.wts1)
+```
+
+To look at the standardized differences as a percentage some code will be wrote before a love plot can be built to better look at the differences after weighting.
+
+```{r}
+bal.before.wts1 <- bal.table(bal.wts1)[1]
+bal.after.wts1 <- bal.table(bal.wts1)[2]
+
+balance.att.weights <- base::data.frame(names = rownames(bal.before.wts1$unw),
+                                        pre.weighting = 100*bal.before.wts1$unw$std.eff.sz,
+                                        ATT.weighted = 100*bal.after.wts1[[1]]$std.eff.sz)
+balance.att.weights <- gather(balance.att.weights, timing, szd, 2:3)
+```
+
+The love plot is then built showing the ATT weighting in red and the pre weighting standardized differences in blue. All the covariates are listed on the left hand size including the raw propensity score and the linear propensity score. Looking at this plot it doesn't look like the weighting has helped the covariates much. The raw and linear propensity scores also still have quite a large standardized difference.
+
+```{r}
+ggplot(balance.att.weights, aes(x = szd, y = reorder(names, szd), color = timing)) +
+  geom_point(size = 3) +
+  geom_vline(xintercept = 0) +
+  geom_vline(xintercept = c(-10,10), linetype = "dashed", col = "blue") +
+  labs(x = "Standardized Differences",
+       y = "",
+       title = "Standarized Differences Before and After ATT Weighting",
+       subtitle = "Among 400 cancer patients")
+```
+
+# Task 4
+
+Both of the rubin's rules can be evaluated using the `bal.table` output above.
+
+## Rubin's Rule 1
+
+The linear propensity score after weighting is -0.341 which is 34.1%. This passes rubin rule 1 and did improve from the 51% the linear propensity score was at before weighting.
+
+## Rubin's Ruble 2
+
+The standard deviations for both the treated and control groups can be taken and then squared to get the ratios of these variances. The standard deviation for linear propensity score of the treatment group is 0.983 and for the control group is 0.662. These standard deviations will then be squared and divided to form the variance ratio using this formula: 0.983^2/0.662^2 = 2.204. This falls outside the range of 0.5 to 2 that is wanted to pass rubin's rule 2.
+
+# Task 5
+
+A propensity score model is then created using the `twang` packages `ps` function. This is a more automated approach then the one previously taken in the first four tasks.
+
+```{r, warning=FALSE}
+ps.canc <- ps(treated ~ age + female + race +
+                  married + typeca + stprob + charlson + ecog,
+             data = canc_df,
+             n.trees = 3000,
+             interaction.depth = 2,
+             stop.method = c("es.mean"),
+             estimand = "ATT",
+             verbose = FALSE)
+```
+
+The summary of this propensity score model shows a slightly smaller estimated control group after adjustment. Using this technique the control group is estimated to be around 138 patients where in the first technique this was estimated to be around 150 patients.
+
+```{r}
+summary(ps.canc)
+```
+
+This table shows the difference adjustment for each variable in this propensity score model.
+
+```{r}
+bal.tab(ps.canc, full.stop.method = "es.mean.att")
+```
+
+The love plot for this propensity score model looks much better then the love plot made in the previous technique. The adjusted standardized differences are much better for basically every variable seen in this plot.
+
+```{r, warning=FALSE}
+love.plot(bal.tab(ps.canc),
+          threshold = .1, size = 3,
+          title = "Standardized differences using TWANG ATT weighting")
+```
+
+# Task 6
+
+Final models are ran on the weighting using the `twang` package since that seemed to have the smallest standardized differences. The first model is ran using `hospice` as the outcome and shows that the treatment with this sample size has no effect on whether patients go to hospice. 
+
+```{r}
+canc.design <- svydesign(ids = ~1,
+                         weights = ~get.weights(ps.canc,
+                                                stop.method = "es.mean"),
+                         data = canc)
+
+model_wt1 <- svyglm(hospice ~ treated, design=canc.design,
+                    family = quasibinomial())
+
+model_twang <- tidy(model_wt1, conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(term == "treated")
+model_twang
+```
+
+The next model is ran on the outcome `alive` and also shows that with this sample size the treatment has no effect on whether the patient is alive or dead. If a patient switched from the treated group to the control group any change in their outcome could be considered random chance.
+
+```{r}
+model_wt2 <- svyglm(alive ~ treated, design=canc.design,
+                    family = quasibinomial())
+
+model_twang2 <- tidy(model_wt2, conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(term == "treated")
+model_twang2
+```
+
+# Task 7
+
+Next, two more models are ran but this time using double robust methods instead of just weighting. This means that the weighting from the `twang` package is done and adjustment is done using the linear propensity score. The first model is using the outcome `hospice` and shows that the treatment has no effect with this sample size on whether a patient goes into hospice. Any difference in `hospice` status among the treatment and control group can still be considered random chance in this study.
+
+```{r}
+wts2 <- get.weights(ps.canc, stop.method = "es.mean")
+
+canc.design2 <- svydesign(ids = ~1,
+                          weights = ~wts2,
+                          data = canc)
+
+model_dr_wt1 <- svyglm(hospice ~ treated + linps, design=canc.design2,
+                         family = quasibinomial())
+
+model_dr_twang <- tidy(model_dr_wt1, conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(term == "treated")
+model_dr_twang
+```
+
+The second model is ran using the outcome `alive` and this model also shows that the treatment has no effect at this sample size on whether a patient is alive or dead. In this current study any change in a patients mortality can be considered random chance until more research is done about this treatment.
+
+```{r}
+model_dr_wt2 <- svyglm(alive ~ treated + linps2, design=canc.design2,
+                       family = quasibinomial())
+
+model_dr_twang2 <- tidy(model_dr_wt2, conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(term == "treated")
+model_dr_twang2
+```
+
+# Task 8
+
+Task 6 and 7 show very similar results compared to what was seen in assignment 3 when using different propensity score methods. The main difference between using weighting was once weighting with adjustment was done the confidence intervals got much tighter and closer to showing a statistically detectable result. Using the double robust method shows that possibly with a larger sample size a statistically detectable difference among the treatments can be seen when using causal inference techniques. The causal inference technique that showed the tightest confidence intervals was the double robust method that included the weighting from the `twang` package.
+
+## Session Info
+
+```{r}
+sessioninfo::session_info()
+```
+

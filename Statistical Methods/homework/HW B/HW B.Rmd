@@ -1,0 +1,85 @@
+---
+title: "Joshua Froess: Homework B for 431"
+author: "Joshua Froess"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+```{r load_packages, message = FALSE, warning = FALSE}
+library(tidyverse)
+
+```
+
+# Question 1:
+
+This code counts the total 437 counties by state, allowing us to see the exact amount of counties in each state for this dataset.
+
+```{r q1_count_state}
+midwest %>%
+    count(state)  
+```
+
+# Question 2
+
+Cuyahoga county has about 25.1% of the population graduated from college and is in a metropolitan area
+
+```{r q2_density_cook_county}
+midwest %>%
+    filter(state == "OH") %>%
+    filter(county == "CUYAHOGA") %>%
+    select(state, county, percollege, inmetro)
+```
+
+# Question 3
+
+This shows a histogram of college graduation across all 437 counties. Each bar represents a 2% binwidth and shows the average graduation rate of these counties with a peak further to the left side of the histogram. This means that a majority of midwest counties have a lower percentage of college graduation.
+
+```{r q3_popdensity_histogram}
+ggplot(midwest, aes(x = percollege)) +
+    geom_histogram(binwidth = 2,
+    fill = "red", col = "black") +
+    labs(x = "College Graduates",
+         y = "Number of Counties",
+         title = "% Residents that Graduated College in Midwest Counties",
+         subtitle = "Counites Among the States: IL, IN, MI, OH, WI") +
+      theme_bw()
+    
+      
+```
+
+# Question 4
+
+Cuyahoga county has a higher rate of college graduation rates compared to the average of the other midwest counties.  When looking at the histogram in question 3, the average seems to be at about 16% for these other counties.  That makes Cuyahoga counties college graduation rate about 9% higher then average of the other 437 midwest counties.
+
+# Question 5
+
+Below is a comparison boxplot of the midwest counties percollege status compared to their metroploitean area. I chose to use a comparison boxplot because it clearly represents the relationship between college graduates and the metropolitean area they are in. The boxplot was also wrote using the same approach as in the course notes.
+
+```{r}
+ggplot(midwest, aes(x = factor(inmetro), y = percollege)) +
+  geom_boxplot() +
+  labs(x = "Metropolitean Area",
+       y = "% Graduated College",
+       title = "% of Midwest County Residents that Graduated College",
+       subtitle = "Where 1 = In a Metro Area; 0 = Not in a Metro Area") +
+  theme_bw()
+
+```
+
+
+# Question 6
+
+Cuyahoga County falls above the median of metropolitean areas and close to the 75th percentile line. The boxplot graph shows the 75th percentile line at about 26% for the metropoliteans areas and the median at about 21%. Cuyahoga County had about 25% of their population graduate college, which is close to the top 75% of other midwest metropolitean areas.
+
+# Question 7
+
+Will we cover the use of graphs in different situations in either 431 or 432?  I see odd graphs used in many papers that I have read and have never been sure why the researchers choose to make the graphs that they do. 
+

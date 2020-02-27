@@ -1,0 +1,182 @@
+---
+title: "Joshua Froess: Homework I for 431"
+author: "Joshua Froess"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+# Question 1
+
+Throughout the Signal and the Noise by Nate Silver many prediction errors are brought up among different fields. These examples help show what key concepts need to be understood whenever an individual is making a prediction. Specifically, Nate Silver talks about predictions in the field of Seismology. In this field exact earthquakes cannot be predicted because researchers don't have a complete understanding of how earthquakes work. But many scientists still try to make these predictions about exactly when earthquakes will happen. Attempting to find associations like this, is something I commonly did in my undergraduate degree. I worked with different professor's to find associations linking the Erie Coke plant to either water or groundwater pollution. At the time my logic for trying to find these associations seemed perfectly fine and when something was found showing ground water pollution it seemed we were on the right track. After reading Nate Silver's book I know the correct thing we should have done is question ourselves and understand the data better.
+
+One of the Seismologists Nate Silver talks to tells him "most top scientists at this point know better than to chase after a Holy Grail that probably doesn't exist". Originally, I thought this was a pretty pessimistic way of thinking, but the more I read the Signal and the Noise the more this quote stuck with me. Even though my research in my undergraduate wasn't a search for the Holy Grail like predicting when an earthquake will appear. It was still biased research where we believed we would find something proving Erie Coke was polluting. The way Seismologists have to think because they don't completely understand how earthquakes occur changed how I thought about approaching research. Instead of looking for associations that are believed to be there, keep an open mind to the hypothesis. This also made me realize that being critical of your own predictions and data analysis is crucial to it being accurate.
+
+Another Seismologist that tried to predict earthquakes made a model that was looking at to much Noise and it ended up failing. Later he realized the mistake and stopped attempting to make the predictions stating that his model was critically flawed. This type of understanding that we aren't perfect as researchers and should always double and triple check our methods is a key concept I got from the Signal and the Noise.
+
+# Setup for Questions 2-6
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+## Load Packages and Data
+
+```{r, message = FALSE}
+library(here); library(janitor); library(magrittr)
+library(patchwork); library(broom); library(tidyverse)
+```
+
+```{r, message=FALSE}
+hwI_plasma <- read_csv(here("data", "hwI_plasma.txt")) %>%
+    mutate_if(is.character, as.factor) %>%
+    mutate(subj_ID = as.character(subj_ID)) %>%
+    mutate(sex = fct_relevel(sex, "M"))
+```
+
+## Code to Select Training and Test Samples
+
+```{r}
+set.seed(2019431)
+hwI_training <- hwI_plasma %>% sample_n(240)
+hwI_test <- anti_join(hwI_plasma, hwI_training, 
+                      by = "subj_ID")
+
+hwI_training
+```
+
+# Question 2
+
+## Normal Distribution
+
+A linear regression model has a few assumptions that it makes about the outcome variable. One of the assumptions is that the data is pretty normally distributed. To determine if the plasma beta-carotene data is normally distributed 3 plots were made to look at the outcome variable. The first set of the 3 plots shows the data not transformed. The outcome variable shows a right skew according to both the histogram and the qq plot shown below. The boxplot and violin plot also show majority of the data pushed to the left side of the graph and all of the outliers on the right side. This doesn't seem to be a normal distribution so the data was then transformed using a log transformation.
+
+```{r}
+p1 <- ggplot(hwI_training, aes(x = betaplasma)) +
+  geom_histogram(binwidth = 25,
+                 fill = "red",
+                 col = "white")
+
+p2 <- ggplot(hwI_training, aes(sample = betaplasma)) +
+  geom_qq(col = "red") + geom_qq_line(col = "black")
+
+p3 <- ggplot(hwI_training, aes(x = "" , y = betaplasma)) +
+  geom_violin(fill = "firebrick3", alpha = 0.3) +
+  geom_boxplot(fill = "firebrick3", width = 0.3,
+               outlier.color = "slateblue") +
+  labs(x = "") + coord_flip()
+
+p1 + p2 - p3 +
+  plot_layout(ncol = 1, height = c(3, 2)) + 
+  plot_annotation(title = "Distribution of Plasma Beta-Carotene (ng/ml)",
+         subtitle = paste0("240 patients with a non-cancerous lesion that was removed"))
+```
+
+## Log Transformation Distribution
+
+The same three plots were made below but this time looking at the plasma beta-carotene outcome variable as a log transformation. Both the histogram and the qq plot show a pretty normal distribution by the data. The qq plot shows small variation at both of the tail ends, but nothing to alarming. The boxplot and violin plot also show the majority of the data in the middle now with some outliers on both ends of the data, but nothing as extreme as the outliers when the outcome was looked at normally. The log transformation of the data would be better for a regression analysis as it shows a more normal distribution than the untransformed outcome variable showed.
+
+```{r}
+p1 <- ggplot(hwI_training, aes(x = log(betaplasma))) +
+  geom_histogram(binwidth = 0.3,
+                 fill = "red",
+                 col = "white")
+
+p2 <- ggplot(hwI_training, aes(sample = log(betaplasma))) +
+  geom_qq(col = "red") + geom_qq_line(col = "black")
+
+p3 <- ggplot(hwI_training, aes(x = "" , y = log(betaplasma))) +
+  geom_violin(fill = "firebrick3", alpha = 0.3) +
+  geom_boxplot(fill = "firebrick3", width = 0.3,
+               outlier.color = "slateblue") +
+  labs(x = "") + coord_flip()
+
+p1 + p2 - p3 +
+  plot_layout(ncol = 1, height = c(3, 2)) + 
+  plot_annotation(title = "Distribution of log(Plasma Beta-Carotene) (ng/ml)",
+         subtitle = paste0("240 patients with a non-cancerous lesion that was removed"))
+```
+
+
+# Question 3
+
+A linear model was created looking at the log of `betaplasma` by the four predictors `age`, `sex`, `bmi`, and `fiber`. The R squared value shows that about 19% of the models variation can be determined by these predictors. The residual standard error estimates the standard deviation of the prediction errors or residuals, this is 0.72 which means we would expect 95% of the residuals to fall between -1.44 and +1.44. All four of the predictors are also statistically detectable with all p values below 0.05.
+
+```{r}
+model_04 <- lm(log(betaplasma) ~ age + sex + bmi + fiber, data = hwI_training)
+summary(model_04)
+```
+
+# Question 4
+
+The summary of `model_04` above shows the coefficient estimates for all four of the predictors. If a patient is female the coefficient estimate says they will have a 0.43 higher `log(betaplasma)`. This means that the log of plasma beta-carotene is higher in female patients than it is in male patients.
+
+# Question 5
+
+The summary of `model_10` has an adjusted R-squared that explains about 21% of the models variation compared to `model_04` explaining about 18% of the variation with its adjusted R-squared value. The residual standard error is also slightly smaller for `model_10`, this model expects that 95% of the residuals will fall between -1.41 and +1.41. This is compared to `model_04` where 95% of the residuals were expected to fall between -1.44 and +1.44. From these it seems that `model_10` performs slightly better then `model_04` does at predicting the `log(betaplasma)`.
+
+```{r}
+model_10 <- lm(log(betaplasma) ~ age + sex + smoking + bmi + vitamin
+               + calories + fat + fiber + alcohol + cholesterol, data = hwI_training)
+summary(model_10)
+```
+
+# Question 6
+
+Below the large and small models are made so that it is converted back to the normal values of plasma beta-carotene and not the logarithmic values. This is so when the models are compared it makes more sense to how the actual prediction errors are functioning. After the big and small model were made the models were combined together to then be visualized and compared. The histogram under visualizing the model's shows that the big model doesn't make as large of errors at the high or low end as the small model. When the model's are compared it seems this sticks true as the big model has smaller numbers in every category compared to the small model. The big model has a small max error, mean squared prediction error, and mean absolute prediction error. This is the same conclusion in question 5 that the big model or `model_10` performs better than the small model or `model_04`.
+
+## Large Model
+
+```{r}
+big_model <- augment(model_10, newdata = hwI_test) %>%
+  mutate(modelname = "big model",
+         fit_plasma = exp(.fitted),
+         res_plasma = betaplasma - fit_plasma)
+```
+
+
+## Small Model
+
+```{r}
+small_model <- augment(model_04, newdata = hwI_test) %>%
+  mutate(modelname = "small model",
+         fit_plasma = exp(.fitted),
+         res_plasma = betaplasma - fit_plasma)
+```
+
+## Combining Model's
+
+```{r}
+plasma_model <- union(big_model, small_model) %>%
+  arrange(subj_ID, modelname)
+```
+
+## Visualizing the Model's
+
+```{r}
+ggplot(plasma_model, aes(x = res_plasma)) +
+  geom_histogram(bins = 20, fill = "slateblue",
+                 col = "white") +
+  facet_grid(modelname ~ .)
+```
+
+## Comparing Model's
+
+```{r}
+plasma_model %>%
+  group_by(modelname) %>%
+  summarize(n = n(),
+            MAPE = mean(abs(res_plasma)),
+            MSPE = mean(res_plasma^2),
+            max_error = max(abs(res_plasma)))
+```
+
+
+## Session Information
+
+```{r}
+sessionInfo()
+```

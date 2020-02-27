@@ -1,0 +1,136 @@
+---
+title: "Joshua Froess: Homework E for 431"
+author: "Joshua Froess"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment=NA)
+options(width = 70)
+```
+
+## Load necessary packages
+
+```{r packages, message = FALSE}
+library(magrittr); library(janitor); library(tidyverse)
+```
+
+## Load necessary data
+
+```{r data_load}
+iris
+```
+
+# Question 1
+
+The pearson correlation of petal length and petal width shows that a linear model accounts for about 96% of the data. While the spearman correlation accounts for 94% of the data of petal length vs petal width. In this case the correlation between these two variables is strong enough that the use of either a pearson or a spearman correlation is sufficient. So it does not matter which correlation is used they both show a strong relationship between the variables.
+
+```{r Pearson}
+cor(iris$Petal.Length, iris$Petal.Width)
+
+```
+
+```{r Spearman}
+cor(iris$Petal.Length, iris$Petal.Width, method = "spearman")
+
+```
+
+# Question 2
+
+A straight line model fits this data well. As petal width increases it looks like petal length also increases. This graph shows a good positive relationship between the two variables. The gray area around the linear model is also small, which also shows that there is a good relationship between these two variables.
+
+```{r scatterplot}
+ggplot(iris, aes(x = Petal.Width, y = Petal.Length)) +
+  geom_point(col = "black") +
+  geom_smooth(method = "loess", se = FALSE, col = "red") +
+  geom_smooth(method = "lm", se = TRUE, col = "blue") +
+  labs(x = "Petal Width (cm)",
+       y = "Petal Lenth (cm)",
+       title = "Flower Petal Length vs Petal Width",
+       subtitle = "Among species: Iris setosa, versicolor, and virginica") +
+  theme_light()
+```
+
+# Question 3
+
+This plot shows how the linear relationship for petal length and width is among each Iris species. This suggests the the strongest linear relationship between spetal length and width is in the species versicolor. The other two species are very clumped and spread out at either the top or bottom of their graphs.
+
+```{r facet_scatterplot_facet}
+ggplot(iris, aes(x = Petal.Width, y = Petal.Length)) +
+  geom_point(col = "slateblue", size = 2) +
+  geom_smooth(method = "lm", col = "firebrick4") +
+  labs(title = "Flower Petal Width vs Length by Species",
+       y = "Petal Length",
+       x = "Petal Width") +
+  theme_bw() +
+  facet_wrap(~ Species, labeller = "label_both")
+  
+```
+
+
+# Question 4
+
+The correlation was stronger among the 150 observations then among any of the individual species correlations. This is because the sample size is three times larger when all the species are put together. The linear model will also cover the entire graph since each species is clumped to a certain part of the graph. Among the individual species correlations versicolor has the strongest relationship between petal length and width.
+
+```{r}
+iris %>%
+  group_by(Species) %>%
+  summarize(Correlation = cor(Petal.Width, Petal.Length)) %>%
+  knitr::kable(digits = 2)
+```
+
+# Question 5
+
+The versicolor flower with a petal width in the 75th percentile range would be longer then one with a petal width in the 25th percentile range. The predicted length of the flower with a width in the 75th percentile range is 2.81 cm larger then the predicted length of the flower in the 25th percentile range.
+
+```{r}
+iris %>%
+  summary()
+```
+
+```{r}
+iris1 <- lm(Petal.Length ~ Petal.Width * Species, data = iris)
+
+predict(iris1, newdata = tibble(Petal.Width = 0.3, Species = "versicolor"),
+        interval = "prediction")
+```
+
+```{r}
+predict(iris1, newdata = tibble(Petal.Width = 1.8, Species = "versicolor"),
+        interval = "prediction")
+```
+
+
+# Question 6
+
+Among all species there seems to be a positive correlation between the sepal width and sepal length. The species iris setosa looks to have the tightest positive correlation compared to the other two species. The species iris versicolor and virginica have larger sepal lengths even though they have similar sepal widths to iris setosa. The sepal width looks to predict sepal length differently per species since each species varies in their sepal length.
+
+```{r}
+ggplot(iris, aes(x = Sepal.Width, y = Sepal.Length, col = Species)) +
+  geom_point(size = 2) +
+  stat_smooth(method = lm, se = FALSE) +
+  labs(x = "Sepal Width (cm)",
+       y = "Sepal Length (cm)",
+       title = "Sepal Width vs Length by Species") +
+  theme(legend.position = "bottom") +
+  facet_wrap(~ Species, labeller = "label_both")
+```
+
+# Question 7
+
+A field that centers around trying to make predictions is fantasy football. The predictions that are commonly made are usually more like a fox, following the data of players and considering the week to week matchups. Considerable voices in fantasy football consistently use past data to back up their claims on why a specific player might do exceedingly well for someone that week. These people also use previously data like Nate Silver does in his baseball prediction software. Constantly comparing a new rookie’s performance to a past players. This is used to back up why someone should believe that rookie will do exceedingly well. 
+
+In this particular year of fantasy football Matthew Berry has made this claim to say that Daniel Jones is a "viable starting quarterback right away". The reason Berry made this claim about someone who only has 1 game worth of stats is because he achieved a feat only 5 other quarterbacks have done. All 5 of these quarterbacks have also been top quarterbacks in fantasy football. These fox style predictions are very common in fantasy football because many people play in payed leagues (myself included). So, listening to off the wall hedgehog style predictions could cost people money they bet. This would lead to instantly thinking the person making these claims is worthless at their predictions.
+
+Citations:
+https://www.espn.com/fantasy/football/story/_/page/TMRlovehate190926/matthew-berry-love-hate-fantasy-football-picks-sleepers-busts-week-4
+
+## Session Information
+
+```{r}
+sessionInfo()
+```

@@ -1,0 +1,761 @@
+---
+title: "431 Project Study A"
+author: "Rajeev Varkey and Joshua Froess"
+date: "`r Sys.Date()`"
+linkcolor: blue
+output:
+  rmdformats::readthedown:
+    highlight: kate
+    number_sections: true
+    code_folding: show
+---
+
+# Introduction 
+
+This project will be using a class survey that was administered in the class 431 during the year of 2019. Six different analysis will be done throughout this project using 7 variables that have been picked from the survey. A total of 67 subjects answered the survey and the data is broken in five different files (called `studyA-2019-student-data-01.csv`, `studyA-2019-student-data-02.xls`, `studyA-2019-student-data-03.xls`, `studyA-2019-student-data-04.csv`, and `studyA-2019-student-data-05.xls`) that will need merged together to be usable.
+
+# R Preliminaries and Data Load/Merge
+
+## Initial Setup
+
+```{r setup}
+knitr::opts_chunk$set(comment = NA,
+                      message = FALSE,
+                      warning = FALSE)
+knitr::opts_knit$set(width = 75)
+```
+
+```{r}
+library(Epi); library(vcd); library(broom)
+library(magrittr); library(here); library(janitor)
+library(readxl); library(skimr); library(tidyverse)
+
+source(here("R", "Love-boost.R"))
+```
+
+## Read in the data files
+
+```{r}
+studyA_raw1 <- read_csv(here("data", "studyA-2019-student-data-01.csv")) 
+studyA_raw2 <- read_xls(here("data", "studyA-2019-student-data-02.xls")) 
+studyA_raw3 <- read_xls(here("data", "studyA-2019-student-data-03.xls")) 
+studyA_raw4 <- read_csv(here("data", "studyA-2019-student-data-04.csv")) 
+studyA_raw5 <- read_xls(here("data", "studyA-2019-student-data-05.xls")) 
+```
+
+## Merging the Five Data Sets
+
+The five data sets will be merged in the following steps using the linking variable `subject`. The final merged data set should contain a total of 165 variables and 67 subjects.
+
+### Combine raw2 and raw3
+
+```{r}
+studyA_raw23 <- bind_rows(studyA_raw2, studyA_raw3)
+dim(studyA_raw23)
+```
+
+### Combine raw4 and raw5
+
+```{r}
+studyA_raw45 <- bind_rows(studyA_raw4, studyA_raw5)
+dim(studyA_raw45)
+```
+
+### Merge raw1 with raw23
+
+```{r}
+studyA_raw123 <- inner_join(studyA_raw1, studyA_raw23, by = "subject")
+dim(studyA_raw123)
+```
+
+### Merge raw123 with raw45
+
+```{r}
+studyA_raw12345 <- inner_join(studyA_raw123, studyA_raw45, by = "subject")
+dim(studyA_raw12345)
+```
+
+## Change character variables to factors throughout, except "subject"
+
+```{r}
+studyA_clean <- studyA_raw12345 %>%
+    mutate_if(is.character, as.factor) %>%
+    mutate(subject = as.character(subject))
+studyA_clean %>% head()
+```
+
+## Renaming variables of Interest
+
+Variables were originally named the question number that they represented. The variables that are of interest will need renamed to make more sense.
+
+```{r}
+studyA <- studyA_clean %>% clean_names() %>%
+  rename(overall_health = q009, 
+         height = q011,
+         weight = q012,
+         dental_exam = q048,
+         oral_health = q053,
+         floss = q067,
+         eat_healthy = q059 
+         ) %>% 
+  select(subject,
+         overall_health,
+         height,
+         weight,
+         dental_exam,
+         oral_health,
+         floss,
+         eat_healthy 
+         ) 
+  
+studyA %>% head()
+
+```
+
+# The Survey Questions Studied Here
+
+The 8 survey questions used used in this demonstration project include the following. The names specified are those contained in the original data files.
+
+## Rating Questions
+
+For this question subjects gave a response between 0 and 100 indicating their agreement with the question. The scale was 0 = Strongly disagree, 100 = Strongly agree.
+
+1. `eat_healthy`: Please rate your agreement with "I eat in an extremely healthy way, every day."
+
+## Other Quantitative Responses
+
+2. `height`: What is your height, in inches?
+3. `weight`: what is your weight, in pounds?
+4. `floss`: Last week, how many times did you floss your teeth?
+
+Summary of all the quantitative variables being used in this study.
+
+```{r}
+studyA %>%
+  skim(eat_healthy, height, weight, floss)
+```
+
+
+## Multi-Categorical Responses
+
+5. `overall_health`: How would you rate your current health overall?
+  - Available responses were "Excellent", "Very Good", "Good", "Fair", and "Poor"
+6. `oral_health`: How would you rate your oral health?
+  - Available responses were "Excellent", "Very Good", "Good", "Fair", and "Poor"
+  
+A count of each of the multi-categorical variables being used in this study.
+  
+```{r}
+studyA %>% count(overall_health)
+```
+
+```{r}
+studyA %>% count(oral_health)
+```
+
+## Binary Responses
+
+7. `dental_exam`: Have you been to a dental examination or cleaning in the past 12 months? (Yes, No)
+
+A count of the binary variable being used in this study.
+
+```{r}
+studyA %>%
+  count(dental_exam)
+```
+
+# Data Management: Tidying the Data
+
+This data set will be built of the 7 variables that were renamed above in the merged `studyA` data set. All variables will be checked to see if they fall within a reasonable range and some variables will be created. `bmi` will be created using the `height` and `weight` variables. `floss` will be turned into a "Yes, No" binary variable.
+
+## Range and Missingness Check
+
+All seven variables in the data set will be checked for missingness and their ranges will be confirmed to be correct. This will be done using the `mosaic::inspect()` function to check all quantitative and categorical variables at once.
+
+1. `eat_healthy` should be in a range of 0-100.
+2. `height` should be reasonable height in inches.
+3. `weight` should be reasonable weight in pounds.
+4. `floss` should be in a range of 0-30.
+5. `overall_health` should be 5 levels of "Excellent", "Very Good", "Good", "Fair", and "Poor".
+6. `oral_health` should be 5 levels of "Excellent", "Very Good", "Good", "Fair", and "Poor".
+7. `dental_exam` should be No or Yes.
+
+```{r}
+studyA %>%
+  mosaic::inspect()
+```
+
+No missingness is seen or values outside the range that would be expected for the variables. 5 levels are seen for each multi-categorical variable as well.
+
+## Reordering the No/Yes factors as Yes/No instead
+
+The binary variable will need changed from No/Yes to Yes/No for the analysis in 2 by 2 tables.
+
+```{r}
+studyA <- studyA %>% 
+  mutate(dental_exam = fct_relevel(dental_exam, "Yes"))
+
+studyA %>% select(dental_exam) %>% summary()
+```
+
+## Categorical Variables in need of Management
+
+Three variables now need mutated based on how the many responses are in each category. For the multi-categorical variables the categories will be combined together so that there is at least 10 responses in each of the categories.
+
+## Collapsing and recoding levels of `overall_health`
+
+The variable `overall_health` needs to be collapsed to have levels that each have at least 10 responses in them. This will be done by making this a 3 category variable. The "Poor" and "Fair" responses were the smallest and will be combined into the "Good" responses.
+
+```{r}
+studyA <- studyA %>% 
+  mutate(overall_health = replace(overall_health, overall_health == "Poor", "Good")) %>%
+  mutate(overall_health = replace(overall_health, overall_health == "Fair", "Good")) %>% 
+  droplevels() %>%
+  mutate(overall_health = fct_relevel(overall_health, "Good", "Very Good", "Excellent"))
+
+studyA %>% select(overall_health) %>% summary()
+```
+
+## Collapsing and recoding levels of `oral_health`
+
+The variable `oral_health` needs to be collapsed to have levels that each have at least 10 responses in them. This will be done by making this a 3 category variable. The "Poor" and "Excellent" responses were the smallest so the "Poor" responses will be combined into the "Fair" responses. The "Excellent" responses will then be combined into the "Very Good" responses.
+
+```{r}
+studyA <- studyA %>% 
+  mutate(oral_health = replace(oral_health, oral_health == "Poor", "Fair")) %>%
+  mutate(oral_health = replace(oral_health, oral_health == "Excellent", "Very Good")) %>% 
+  droplevels()
+
+studyA %>% select(oral_health) %>% summary()
+```
+
+## Mutating `floss` into a Yes/No variable
+
+The `floss` variable had 19 out of the 67 subjects answer 0, because of this it was decided that floss would instead be turned into a yes/no binary variable. All responses that were greater then 0 were considered a yes and the 0's were considered a no. This was then releveled from a no/yes to a yes/no variable.
+
+```{r}
+studyA <- studyA %>%
+  mutate(floss = ifelse(floss > 0, "Yes", "No")) %>%
+  mutate(floss = as.factor(floss))
+         
+studyA <- studyA %>%
+  mutate(floss = fct_relevel(floss, "Yes"))
+
+studyA %>% select(floss) %>% summary
+```
+
+## Combining `height` and `weight` into `bmi` and Specifying `NA` for Implausible Values
+
+The variables `height` and `weight` will be used to calculate `bmi` using a standard formula to turn height in inches and weight in pounds into the body mass index.
+
+```{r}
+studyA <- studyA %>% 
+  mutate(bmi = 703 * weight / height^2 )
+
+Hmisc::describe(~ bmi, data = studyA)
+```
+
+```{r}
+studyA %>% 
+  select(height, weight) %>% 
+  Hmisc::describe()
+```
+
+All values of `height` and `weight` seem to be within a realistic range. Thus, `bmi` values are also within a reasonable range. There are no cases of missingness in `height` and `weight`.
+
+```{r}
+studyA %>%
+  select(eat_healthy) %>%
+  Hmisc::describe()
+```
+
+## Our final tibble
+
+```{r}
+studyA %>% head()
+```
+
+## Identifying and Dealing with Missing Values
+
+```{r}
+studyA %>%  summarize_all(funs(sum(is.na(.)))) %>% 
+  knitr::kable()
+```
+
+There are no missing values for any of the variables in our data set.
+
+# The Final, Clean Codebook
+
+The 9 variables in our tidy data set for this demonstration are as follows. The Type column indicates the number of levels in each categorical (factor) variable. We have no missing data in any variable.
+        
+Variable          | Type  | Description / Levels
+----------------- | :---: | --------------------------------------------
+`subject`         | ID    | subject code (R-01 - R-67)
+`overall_health`  | Cat-3 | Good, Very Good, Excellent: How would you rate your current health overall?
+`height`          | Quant | What is your height, in inches?
+`weight`          | Quant | What is your weight, in pounds?
+`dental_exam`     | Cat-2 | Yes, No: Have you been to a dental examination or cleaning in the past 12 months?
+`oral_health`     | Cat-3 | Fair, Good, Very Good: How would you rate your oral health?
+`eat_healthy`     | Quant | Last week, how many times did you eat_healthy your teeth? (0-30)
+`floss`           | Cat-2 | Yes, No: Last week, how many times did you floss your teeth? (0-30): All values of 0 were No, anything above 0 was yes
+`bmi`             | Quant | 703 x `weight`/(`height` squared)
+ 
+# Analysis 1b: Compare 2 Population  Means using Independent Samples
+
+We'll compare `eat_healthy` by `dental_exam` in this analysis using independent samples. 
+
+## Summarizing the Distributions for each of the two samples
+
+We'll start by looking at the range of the `eat_healthy` for each category of `dental_exam`.
+
+```{r}
+mosaic::favstats(eat_healthy ~ dental_exam, data = studyA)
+```
+
+The minimum value in the Yes `dental_exam` group is unusual since the respondent answered 0, suggesting they do not believe they have any healthy eating behaviors during any day. Also, someone in the No `dental_exam` believed they had an extremely healthy diet, since they answered with the maximum allowed score of 95. The mean of both groups are very close at 61.3 for the Yes group and 61.4 for the No group.
+
+### Graphical Summaries
+
+Graphical summaries will be done using violin plots with a box plot inside and Normal Q-Q plots.
+
+#### Violin and Box Plots
+
+Comparison Box plot with notches and violin.
+
+```{r}
+ggplot(studyA, aes(x = dental_exam, y = eat_healthy, fill = dental_exam)) + 
+  geom_violin(alpha = 0.5) +
+  geom_boxplot(width = 0.2, notch = TRUE, notchwidth = 0.1) +
+  guides(fill = FALSE) +
+  labs(title = "Eat Healthy Score by Dental Exam",
+       subtitle = "n = 67 Students in 431: Fall 2019",
+       x = "", y = "Score of Eat Healthy") +
+  theme_bw()
+```
+
+We have two outliers in the Yes `dental_exam` group and no outliers in the No group. The medians of both groups were close at 70 for the Yes group and 65 for the No group.
+
+#### Normal Q-Q plots.
+
+```{r}
+ggplot(studyA, aes(sample = eat_healthy, col = dental_exam)) +
+  geom_qq() + geom_qq_line() +
+  facet_wrap(~ dental_exam) +
+  guides(col = FALSE) +
+  theme_bw() +
+  labs(y = "eat_healthy values",
+       title = "Do you Eat Healthy Values by Dental Exam fit a Normal Model?")
+```
+
+The Yes group QQ-plot shows outliers and potential left skew. The No group shows more potential to fit a Normal distribution.
+
+### Numerical Summaries
+
+We have 42 subjects who answered Yes to the dental exam question and 25 who answered No. 
+
+```{r}
+mosaic::favstats(eat_healthy ~ dental_exam, data = studyA) %>%
+  knitr::kable()
+```
+
+Generating skew~1~ values with `skew1`function from `Love-boot.R`.
+
+```{r}
+by(studyA$eat_healthy, studyA$dental_exam, skew1)
+```
+
+The non parametric skew of -0.38 suggests substantial left skew for the Yes group. For the No group, the value of -0.18 is less then the left skew threshold of -0.2, which suggests that the left-skew is not substantial. 
+
+## Building Confidence Intervals
+
+Owing to the lack of Normality for both our independent samples, we will be building confidence intervals using the following methods:
+
+- The Wilcoxon-Mann-Whitney Rank Sum Test
+- The Bootstrap, using `bootdif`
+
+### The Wilcoxon-Mann-Whitney rank sum test
+
+```{r}
+wilcox.test(studyA$eat_healthy ~ studyA$dental_exam, 
+            conf.level = .90, conf.int = TRUE, exact = FALSE) %>%
+  tidy() %>%
+  select(estimate, conf.low, conf.high)
+```
+
+- The estimated location shift in population `eat_healthy` across Yes and No respondents of the `dental_exam` question is 2.0.
+- Our 90% confidence interval for the location shift(Dental Exam - No Dental Exam) of the population is (-5.0, 10.0)
+- We assumed a two-sided confidence interval procedure. We conclude from the confidence interval(which contains zero) that there is no statistically detectable difference between the true locations of the Dental Exam Yes and Dental Exam No groups for their score of `eat_healty`
+
+### The Bootstrap for comparing means from two independent samples
+
+We are using a 90% confidence interval to analyze the difference between the Dental Exam Yes group and the Dental Exam No group population `eat_healthy` distributions based on the bootstrap using a seed of `2019`. 
+
+```{r}
+set.seed(2019) 
+bootdif(studyA$eat_healthy, studyA$dental_exam, conf.level = 0.90)
+```
+
+- The population mean for the `eat_healthy` score in the Dental Exam Yes group is estimated to be about 0.14 points higher that the population mean for the `eat_healthy` score in the Dental Exam No group. So the mean difference's point estimate is 0.1.
+- Our 90% confidence interval for the difference (Dental Exam Yes - Dental Exam No) of the population means is (-8.7, 9.0)
+- Here, I've assumed a two-sided confidence interval procedure. We conclude from the confidence interval (which does contain zero) that there is no statistically detectable difference (at the 10% significance level, since we have a 90% confidence interval) between the true means of the Dental Exam Yes and No groups for `eat_healthy` scores.
+- The assumptions of this bootstrap procedure are:
+  - that the samples in each group are drawn independently of each other.
+  - *and* that the samples in each group represent a random sample of the population of interest. 
+
+# Analysis 2: Comparing 3+ Population Means via ANOVA
+
+We will compare `eat_healthy` by `overall_health` in this analysis, using the analysis of variance, and related tools. We're comparing the mean `eat_healthy` scores of the population represented by the respondents who stated they have "Good" overall health, to the population represented by the respondents who stated they have "Very Good" overall health, to the population represented by the respondents who stated they have "Excellent" overall health. There is no link between subjects across the three `overall_health` groups, so the samples are independent. Additionally, the count of each group is different, so there is no way their `eat_healthy` scores could be matched. As a result, we're going to be interested in looking at the three samples separately to help us understand issues related to hypothesis testing assumption.
+
+## Summarizing the Distributions for each of the three samples
+
+We'll start by looking at the range of the `eat_healthy` data with each group of `overall_health`.
+
+```{r}
+mosaic::favstats(eat_healthy ~ overall_health, data = studyA)
+```
+
+We have 18 in the Excellent group, 16 in the Good group and 33 in the Very Good group. 
+
+### Graphical Summaries
+
+```{r}
+ggplot(studyA, aes(x = overall_health, y = eat_healthy, fill = overall_health)) +
+  geom_violin(alpha = 0.3) +
+  geom_boxplot(width = 0.3) +
+  coord_flip() +
+  guides(fill = FALSE) +
+  theme_bw() +
+  labs(title = "Score of Eat Healthy Everyday based on Overall Health",
+       y = "Eat Healthy Everyday Score (0-95)",
+       x = "")
+```
+
+We have one outlier in the "Excellent" `overall_health` group and four outliers in the "Very Good" `overall_health` group. Median trends seem to make sense, the "Good" category has a lower median value. 
+
+```{r}
+ggplot(studyA, aes(x = eat_healthy)) +
+  geom_histogram(aes(fill = overall_health), bins = fd_bins(studyA$eat_healthy), col = "white") +
+  theme_bw() +
+  facet_wrap(~ overall_health, labeller = "label_both") +
+  guides(fill = FALSE) +
+  labs(title = "Score of Eat Healthy Everyday  based on Overall Health",
+       y = "Eat Healthy Everyday Score (0-95)",
+       x = "")
+```
+
+- The "Very Good" and "Excellent" `overall_health` groups seem to be skewed to the left.  They also both show the pretense of low score outliers. There are significantly more subjects in the "Very Good" group than the other two `overall_health` groups.
+
+```{r}
+ggplot(studyA, aes(sample = eat_healthy, col = overall_health)) +
+  geom_qq() + geom_qq_line() +
+  facet_wrap(~ overall_health) +
+  guides(col = FALSE) +
+  theme_bw() +
+  labs(y = "eat_healthy values",
+       title = "Do Eat Healthy scores for each Overall Health Category fit a Normal Model?")
+```
+
+-- The "Good" and "Excellent" categories of `overall_health` may fit a normal model, but it is not conclusive from these plot.
+-- The "Very Good" category also is difficult to clearly interpret.
+
+### Numerical Summaries
+
+```{r}
+mosaic::favstats(eat_healthy ~ overall_health, data = studyA) %>% 
+  knitr::kable()
+```
+
+### Generating Skew
+
+Generating skew~1~ values with `skew1`function from `Love-boost.R`.
+
+```{r}
+by(studyA$eat_healthy, studyA$overall_health, skew1)
+```
+
+There is significant left skew for the "Very Good" and "Excellent" `overall_health` groups. There is no evidence of skew in the "Good" `overall_health` group, so an ANOVA would be acceptable for this category.
+
+## Building Inferences to Compare the Three Populations
+
+Based on the summaries above we will be building statistical inferences with a 90% confidence level using the following two methods:
+
+- The Kruskal-Wallis Test
+- Analysis of Variance
+
+### Kruskal-Wallis Test
+
+```{r}
+kruskal.test(studyA$eat_healthy ~ studyA$overall_health)
+```
+
+- There is not a statistically detectable difference between the `eat_healthy` scores for the three `overall_health` groups (p = 0.12 > 0.1, significance level of 10%)
+- Kruskal-Willis test assumptions
+  - The samples in each category are drawn independent of each other.
+  - The Samples in each category represent a random sample of the population of interest.
+  
+
+The conclusion drawn from the Kruskal test are acceptable since, we have greater than 15 observations per group. 
+
+### Analysis of Variance
+
+The Analysis of Variance compares the means of `eat_healthy` in the three `overall_health` populations.
+
+```{r}
+studyA_aov <- aov(studyA$eat_healthy ~ studyA$overall_health)
+summary(studyA_aov)
+```
+
+- There is statistically detectable difference (at the 10% significance level, since p = 0.05 < 0.10) between the population mean `eat_healthy` scores for the three `overall_health` categories.
+- The `overall_health` groups account for  $\eta^2 = \frac{2709}{2709 + 28535} = 0.09$ or 9% of the variation in `eat_healthy` scores in our sample.
+- ANOVA assumption violations
+  - The population variance of each group are not the same and the samples sizes of each population are different.
+  - These violations suggest that the ANOVA model may not give a reasonable or accurate result.
+
+### Bonferroni approach to Pairwise Comparison Means
+
+```{r}
+pairwise.t.test(studyA$eat_healthy, studyA$overall_health, 
+                p.adjust = "bonferroni")
+```
+
+- With an overall significance level of 10%, we can detect differences between the mean of the "Good" `overall_health` group and the the other two groups. There is no detectable difference between the "Very Good" and "Excellent" groups. 
+
+### Tukey's Honestly Significant Differences approach to Pairwise Comparisons of Means
+
+```{r}
+TukeyHSD(studyA_aov, conf.level = 0.90)
+```
+
+The confidence intervals suggest that the mean "Very Good" `eat_healthy` scores are detectably different (higher) than the "Good" group. It also suggests, that the mean "Excellent" `eat_healthy` scores are detectably different (higher) than the "Good" group. The "Excellent" and "Very Good" group do not show a detectable difference.
+
+```{r}
+mar.default <- c(5,6,4,2) + 0.1
+par(mar = mar.default + c(0, 4, 0, 0))
+plot(TukeyHSD(studyA_aov, conf.level = 0.90), las = 1)
+```
+
+Our conclusions are:
+
+- There is a detectable difference between the "Very Good" and "Excellent" groups with the "Good" category. 
+- There is not a detectable difference between the "Very Good" and "Excellent" groups.
+- This is reasonable, since both "Excellent" and "Very Good" had the same median and very close means.
+- Both the "Very Good" and "Excellent" groups are higher than the population mean of the "Good" group.
+
+# Analysis 3: Regression Comparisons of Means with Adjustment
+
+For this analysis, we compare `eat_healthy` by `overall_health` after adjusting for `bmi` in a regression model.
+
+```{r}
+mosaic::favstats(~ bmi, data = studyA)
+```
+
+There are no missing or unusual values for `bmi`. 
+
+## The Regression Model, Adjusting for a Single Quantitative Covariate
+
+```{r}
+model1 <- lm(eat_healthy ~ overall_health + bmi, data = studyA)
+summary(model1)
+```
+
+- From the R-squared value, this model accounts for 12% of the variation in `eat_health` using `overall_health` and `bmi`.
+- The F statistics suggest, that there is a significant predictive value somewhere in this model.
+
+```{r}
+anova(model1)
+```
+
+- The ANOVA shows a statistically detectable `overall_health` effect at the 10% level (p = 0.05 < 0.1) after accounting for `bmi`.
+- Combined, the `overall_health` groups and `bmi` account for  $\eta^2 = \frac{2709.5 + 1153.0}{2709.5 + 1153.0 + 27382.0} = 0.12$ or 12% of the variation in `eat_healthy` scores in our sample. This is an improvement over the 9% accounted for by `overall_health` alone. The `bmi` variable has some impact, that is on the threshold of being statistically detectable at a 10% significance level (p = 0.1 = 0.10).
+
+## Predicting the outcome at the average level of the covariate for each group
+
+```{r}
+studyA %>%  summarize(mean(bmi))
+```
+
+At the mean level of `bmi`, which is 23.9, we will predict values for `eat_healthy` for subject of each of the 3 `overall_health` groups.
+
+```{r}
+new1 <- data.frame(overall_health = c("Good", "Very Good", "Excellent"),
+                  bmi = rep(mean(studyA$bmi), 3)
+                  )
+```
+
+
+```{r}
+predict(model1, newdata = new1,
+        interval = "prediction", level = 0.90) %>% 
+  knitr::kable()
+```
+
+We conclude that the model predicts, for example, that a new subject with the mean level of our covariate (`bmi`) who rated themselves of having "Very Good" overall health have a `eat_healthy` score of 63.1, with a 90% prediction interval of (27.8, 98.5). Since the maximum possible `eat_healthy` score is 95, this is an indication that our model has some flaws.
+
+## Identifying Assumption Violations
+
+```{r}
+par(mfrow = c(1,2))
+plot(model1, which = 1:2)
+```
+
+Assumption violations:
+
+- The plot on the left suggests we are much better at predicting subjects with a score around 65 then we are at predicting subjects that picked a much lower score.
+- The plot on the right is a Q-Q plot of the residuals and is showing some normality violations, possibly the data is left skewed.
+
+# Analysis 4: Two-Way (2x2) Table from data
+
+Here, we build a 2x2 table to look at the association of `dental_exam` with `floss`.  We will use a 90% confidence level and Bayesian augmentation for our analysis.
+
+## Building the 2x2 Table
+
+```{r}
+t1 <- table(studyA$dental_exam, studyA$floss)
+colnames(t1) <- c("Floss", "Does Not Floss")
+rownames(t1) <- c("Dental Exam", "No Dental Exam")
+knitr::kable(addmargins(t1))
+```
+
+## 2x2 Table Analysis
+
+```{r}
+twoby2(t1 + 2, conf.level = 0.90) # uses Bayesian augmentation, 90% confidence level
+```
+
+We used a Bayesian Augmentation for our analysis.
+
+  - The individual probabilities of flossing or not flossing for subject who had a dental exam in the last 12 months or did not, and 90% confidence intervals for each at top of the output, so that, for instance we estimate the probability of those who flossed that did not have a dental exam is 0.48, with 90% confidence interval (0.34, 0.63).
+  - The relative risk of flossing given that the subject had a dental exam or cleaning in the last 12 months vs flossing given no dental exam, which is estimated 1.71, and based on its 90% interval is detectably different from 1 with an $\alpha = 0.10$.
+  - The odds ratio describing the odds of flossing given the subject had a dental exam or cleaning in the last 12 months vs no dental exam or cleaning in the last 12 months, which is estimated to be 5.09, is detectably different from 1. 
+  - The difference in probability of flossing for those who had a dental exam and those who did not, which is estimated to be 0.34, with a a 90% confidence interval (0.16, 0.51) and is detectably different from 0 at an $\alpha = 0.10$.
+  - The chi-square test of independence, which assesses the null hypothesis of no association between flossing and dental exams, using either Fisher’s exact test or the Pearson chi-square test (Asymptotic P-value). With a p value less than 0.1, we can reject the null hypothesis in this case, and we can expect a detectable association between the rows and the columns at a 10% significance level.
+
+### Checking Assumptions
+
+Each cell has a count of more than 5, R throws no warning messages. We are reasonably comfortable with the chi-square test of independence here. 
+
+# Analysis 5: Two-Way (2x3) Contingency Table
+
+The associations of the two variables `dental_exam` and `oral_health` will be checked in this analysis. We will be interested in whether subjects who have gotten a dental exam or cleaning in the past 12 months rate their oral health as "Fair", "Good", or "Very Good".
+
+## Building the 2x3 Table from data
+
+```{r}
+t2 <- table(studyA$dental_exam, studyA$oral_health)
+knitr::kable(addmargins(t2))
+```
+
+1 cell is under 5, but all other cells look good. It will be checked to make sure no assumptions are violated by this cell later.
+
+### Pearson $\chi^2$ Test
+
+```{r}
+chisq.test(t2)
+```
+
+Based on the Pearson Chi-squared test the association is not statistically detectable at 90% confidence level,  since the *p* value is well above 0.10. 
+
+### Fisher's Exact Test
+
+```{r}
+fisher.test(t2)
+```
+
+Based on the Fisher test the association is not statistically detectable at 90% confidence level,  since the *p* value is well above 0.10.
+
+### Checking Assumptions - The Cochran Conditions
+
+This satisfies the Cochran Conditions since none of the cells are 0 and 5 out of 6 cells (83%) have counts over 5.
+
+## An Association Plot for the 2x3 Table
+
+```{r}
+mosaic(~ dental_exam + oral_health, data = studyA,
+        highlighting = "dental_exam",
+        highlighting_fill = c("dodgerblue4", "gray40"),
+        main = "Association Plot",
+        labeling_args = list(set_varnames = 
+                               c(oral_health = "Oral Health", 
+                                 dental_exam = "Dental Exam")))
+```
+
+There seems to be more subjects that answered yes to `dental_exam` then did not in every category of self reported `oral_health` based on this mosaic plot.
+
+# Analysis 6: Three-Way Contingency Table
+
+The association of the three variables `floss`, `dental_exam`, and `oral_health` will be analyzed. All three of these variables are categorical with `floss` and `dental_exam` being binary, and `oral_health` being a 3 level categorical variable. We will be interested in whether the rows(`dental_exam`) and columns(`floss`) from our previous two-by-two analysis show a change in association by stratifying by the variable `oral_health`.
+
+## Compiling the Three-Way Contingency Table
+
+The three way contingency table will be compiled by having `dental_exam` in the rows, `floss` in the columns, and stratifying by the different categories of `oral_health`.
+
+```{r}
+t3 <- table(studyA$dental_exam, studyA$floss, studyA$oral_health)
+addmargins(t3)
+```
+
+### Adjusting Names of Columns and Rows
+
+```{r}
+rownames(t3) <- c("Dental Exam", "No Dental Exam")
+colnames(t3) <- c("Floss", "Does Not Floss")
+addmargins(t3)
+```
+
+### Flattening the Table
+
+By flattening the table this looks more visually appealing then the previous tables that were created.
+
+```{r}
+t3.flat <- table(studyA$oral_health, studyA$floss, studyA$dental_exam)
+dimnames(t3.flat)[[1]] <- c("Fair", "Good", "Very Good")
+dimnames(t3.flat)[[2]] <- c("Dental Exam", "No Dental Exam")
+dimnames(t3.flat)[[3]] <- c("Floss", "Does Not Floss")
+ftable(t3.flat)
+```
+
+## Checking Assumptions with the Wolf Test
+
+```{r}
+woolf_test(t3)
+```
+
+The Woolf test suggest that we cannot reject the null hypothesis that the odds ratios are homogeneous across the three strata. Therefore, the CMH test is appropriate.
+
+## The Cochran-Mantel-Haenszel Test
+
+The Cochran-Mantel-Haenszel (CMH) test works with our original table `t3`, and it assesses whether the odds ratio describing the association of `dental_exam` and `floss` is detectably different from 1, after accounting for differences between the three groups of `oral_health` responses. The CMH test assumes that the odds ratio is (in the population) identical in each `oral_health` group, or stratum. We checked that assumption (to the extent possible) with the Woolf test. 
+
+```{r}
+mantelhaen.test(t3, conf.level = 0.90)
+```
+
+The odds ratio comparing whether subjects `floss` to those that have received a `dental_exam` or cleaning in the past 12 months is 5.90, with a 90% confidence interval of (2.23, 15.59). We conclude that there is a statistically detectable difference between `floss` and `dental_exam` after stratifying by self reported `oral_health`. The *p* value is also 0.0036, which is much smaller than $\alpha = 0.10$.
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

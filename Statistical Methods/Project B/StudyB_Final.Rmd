@@ -1,0 +1,748 @@
+---
+title: "Understanding the Lethality of the Weapon Type Used in Mass Shootings"
+author: "Joshua Froess and Rajeev Varkey"
+date: "`r Sys.Date()`"
+linkcolor: blue
+output:
+  rmdformats::readthedown:
+    highlight: kate
+    number_sections: true
+    code_folding: show
+---
+
+# Introduction
+
+We will be using the The Stanford Mass Shootings in America (MSA), courtesy of the Stanford Geospatial Center and Stanford Libraries, found in the `Stanford_MSA_Database.csv` data file. This data will be used to answer the following research question: How effectively can the type of gun used in a mass shooting predict the number of victims in a mass shooting event occurring in the United States of America. 
+
+# R Preliminaries and Data Load/Merge
+
+## Initial Setup and Package Loads in R
+
+```{r initial_setup, cache=FALSE, message = FALSE, warning = FALSE}
+library(knitr); library(magrittr); library(patchwork); 
+library(janitor); library(simputation); library(GGally) 
+library(car); library(broom); library(here); 
+library(tidyverse) 
+```
+
+## Global options
+
+```{r}
+options(max.print="75")
+opts_chunk$set(comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+
+## Loading the Raw Data into R
+
+```{r}
+msa_study <- read_csv(here("data", "Stanford_MSA_Database.csv")) %>%
+  clean_names()
+
+names(msa_study)
+```
+
+# Purpose of this study
+
+We will be looking at data related to 355 mass shooting events occurring between 1966 and 2016. To be included as a mass shooting Stanford used the definition of 3 or more victims in a shooting incident that was not related to gang or organized crime violence. Our goal is to build a prediction model for the number of victims from a mass shooting, based on the type of gun used and other predictors. The data we are using is in the `Stanford_MSA_Database.csv` datafile available at the [MSA GitHub Repository][https://github.com/StanfordGeospatialCenter/MSA].
+
+# Original Data Set and Range Checks/Missingness
+
+From the `msa_study` data set we have chosen 55 variables and all 355 observations. For each event, they have gathered the following:
+
+- the `title` of the incident
+- the `location` , which gives the city and state where the incident took place, as does `city` and `state`
+- the `latitude` and `longitude` of where  the incident  took place
+- for civilian causalities, the `number_of_civilian_fatalities` and  `number_of_civilian_injured`of a mass shooting event are given
+- for law enforcement casualties, the  `number_of_enforcemnet_fatalities` and `number_of_enforcement_injured` of a mass shooting event are given
+- the `total_number_of_victims` of a shooting event
+- a detailed `description` of the mass shooting event
+- the `date`, `day_of_week` and `date_detailed` describe when the incident took place
+- the `shooter_name` provides the names of all shooters from the mass shooting
+- the `number_of_shooters` involved during the mass shooting
+- the `shooter_age_s` provides the ages of all shooters involved
+- the `average_shooter_age`, which is the average age of all shooters involved in the mass shooting
+- the `type_of_gun_detailed`, which gives a detailed description of the guns used during the event
+- the general category of the gun is given in `type_of_gun_general`
+- the `number_of_shotguns`, `number_of_rifles`, `number_of_handguns`, `total_number_of_guns`, `number_automatic_guns`, and `number_of_semi-automatic_guns`
+- the `fate_of_shooter_at_the_scene` and the ultimate `fate_of_shooter`
+- whether or not the event was `school_related` 
+- the `place_type`, which is a general category of the location where the incident occurred
+- the `relationship_to_incident_location` that the shooter had
+- the `targeted_victims_detailed` and `targeted_victim_s_general` give information of who the shooter targeted
+- the shooter's possible motive (`possible_motive_detailed` and `possible_motive_general`)
+- the shooters history of mental illness (`history_of_mental_illness_detailed` and `history_of_mental_illness_general`)
+- the source used to gather information on the shootings (`data_source_1`, `data_source_2`, `data_source_3`, `data_source_4`, `data_source_5`, `data_source_6`, `data_source_7`)
+- whether or not the shooter had `military_experience`
+- the type of shooting is given by `class`
+- whether the case fits the criteria for inclusion into the database is given by `depreciation`
+- `notes` and the `edit_date` for each incident
+
+```{r}
+msa_study %>%
+  select(case_id, total_number_of_victims, type_of_gun_detailed, type_of_gun_general, fate_of_shooter,
+         number_of_semi_automatic_guns, school_related, average_shooter_age, shooter_race) %>%
+  glimpse()
+```
+
+This tibble describes 9 variables, including:
+
+- a numeric variable called `case_id` that is not used in our model except for identification of a mass shooting event
+- our outcome variable, `total_number_of_victims`
+- a character variable called `type_of_gun_detailed` that is used to help build the tidy data set
+- four categorical candidate predictors, specifically `gun_gen`, `school_related`, `shooter_race`, `fate_of_shooter` each will be changed in R to a factor. 
+- a character variable `number_of_semi_automatic_guns` which will be changed to a binary candidate predictor variable that describes whether a semi-automatic gun was used.
+- a quantitative candidate predictor called `avg_age`
+
+## Variables that are being used to build the tidy data set
+
+In fitting model, we plan on using six predictors: `gun_gen`, `avg_age`, `school_related`, `shooter_race`, `fate_of_shooter`, and `semi_used` to model our outcome: `victims`. 
+
+# Data Management: Building a Tidy Data Set
+
+In building our tidy data, we will do the following:
+
+- Change all "Unknown" values to NA
+- Rename some variables to be shorter
+- Create a new predictor variable (`semi_used` = Yes if `number_semi` > 0)
+- Eliminating inconsistencies within the categorical variables
+
+## Dealing with Missingness
+
+We are changing all values set as "Unknown" to NA.
+
+```{r}
+msa_study <- msa_study %>%
+  na_if("Unknown")
+```
+
+## Renaming Variables
+
+The variable names from the Stanford MSA are rather long. Here, we shorten the names of our variables of interest.
+
+```{r}
+msa_study <- msa_study %>%
+  rename(victims = total_number_of_victims,
+         number_semi = number_of_semi_automatic_guns,
+         avg_age = average_shooter_age,
+         gun_gen = type_of_gun_general,
+         gun_detail = type_of_gun_detailed)
+```
+
+## Creating the `semi_used` predictor
+
+The MSA provides the variable `number_semi`, which reports the number of semi-automatic weapons involved in a mass shooting event. We are changing this to a binary variable that indicates if a semi-automatic weapon was involved in the mass shooting.
+
+```{r}
+msa_study <- msa_study %>%
+  mutate(semi_used = ifelse(number_semi < 1, "no", "yes"))
+
+msa_study %>%
+  tabyl(semi_used)
+```
+
+## `gun_gen`: type of gun that is used with a general description
+
+```{r}
+msa_study %>%
+  tabyl(gun_gen)
+```
+
+By exploring the `gun_detail` variable we see that the "Rifle" group includes guns that should be placed in the "Semi-Automatic Rifle" group. Since we have already created a binary variable for `semi_used` we will just combine "Semi-Automatic Rifle" with "Rifle"
+
+```{r}
+msa_study %>%
+  filter(gun_gen == "Rifle") %>%
+  select(gun_detail, gun_gen) %>%
+  head()
+```
+
+Here, we are correcting inconsistencies in the values of `gun_gen` were "Multiple Guns" were used. We are also changing all instances of 9-mm into handgun, so that we have more of a general description of the gun. 
+
+```{r}
+msa_study <- msa_study %>%
+  mutate(gun_gen = replace(gun_gen, gun_gen == "Handgun", "handgun")) %>%
+  mutate(gun_gen = replace(gun_gen, gun_gen == "9-mm", "handgun")) %>%
+  mutate(gun_gen = replace(gun_gen, gun_gen == "Multiple guns", "Multiple Guns")) %>%
+  mutate(gun_gen = replace(gun_gen, gun_gen == "Multiple guns\n", "Multiple Guns")) %>%
+  mutate(gun_gen = replace(gun_gen, gun_gen == "\nMultiple guns", "Multiple Guns")) %>%
+  mutate(gun_gen = replace(gun_gen, gun_gen == "Semi-Automatic Rifle", "Rifle"))
+
+msa_study %>%
+  tabyl(gun_gen)
+```
+
+### `shooter_race`: the shooter's race
+
+```{r}
+msa_study %>%
+  tabyl(shooter_race)
+```
+
+The MSA database has some inconsistencies in values of `shooter_race` that we need to clean up. Additionally, we are combining race values that indicate a "race/some other race" with the primary race. For example "Asian American/Some other race" will become "Asian American".  We are also placing "Native American or Alaska Native" with the "Some other race" group, since there are only 3 subjects with that value.
+
+```{r}
+msa_study <- msa_study %>%
+  mutate(shooter_race = replace(shooter_race, shooter_race == "Asian American/Some other race", "Asian American")) %>%
+  mutate(shooter_race = replace(shooter_race, shooter_race == "Some Other Race", "Some other race")) %>%
+  mutate(shooter_race = replace(shooter_race, shooter_race == "Black American or African American/Unknown", "Black American or African American")) %>%
+  mutate(shooter_race = replace(shooter_race, shooter_race == "White American or European American/Some other Race", "White American or European American")) %>%
+  mutate(shooter_race = replace(shooter_race, shooter_race == "Native American or Alaska Native", "Some other race")) %>%
+  mutate(shooter_race = replace(shooter_race, shooter_race == "Two or more races", "Some other race")) %>%
+  mutate(shooter_race = fct_relevel(shooter_race, "White American or European American"))
+
+msa_study %>%
+  tabyl(shooter_race)
+```
+
+### `fate_of_shooter`: the shooter's fate of deceased, custody, or escaped
+
+```{r}
+msa_study %>%
+  tabyl(fate_of_shooter)
+```
+
+For values that show "Custody/Escaped" for `fate_of_shooter`, we are changing the value to "Custody". In these cases, the shooter was eventually arrested and placed in custody after a period of being at large. Also, we are changing "Arrested" to "Custody" for consistency. A value of "FALSE" is being changed to NA, as well.
+
+```{r}
+msa_study <- msa_study %>%
+  mutate(fate_of_shooter = replace(fate_of_shooter, fate_of_shooter == "Arrested", "Custody")) %>%
+  mutate(fate_of_shooter = replace(fate_of_shooter, fate_of_shooter == "Custody / Escaped", "Custody")) %>%
+  mutate(fate_of_shooter = replace(fate_of_shooter, fate_of_shooter == "Custody/Escaped", "Custody")) %>%
+  na_if("FALSE")
+
+msa_study %>%
+  tabyl(fate_of_shooter)
+```
+
+### `school_related`: whether or not the mass shooting happened at a school
+
+```{r}
+msa_study %>%
+  tabyl(school_related)
+```
+
+After checking the `description`, it seems this "Killed" value is not school related.
+
+```{r}
+msa_study %>%
+  filter(school_related == "Killed") %>%
+  select(description)
+```
+
+Here, we are correcting inconsistencies within the `school_related variable and changing "Killed" to "No". 
+
+```{r}
+msa_study <- msa_study %>%
+  mutate(school_related = replace(school_related, school_related == "no", "No")) %>%
+  mutate(school_related = replace(school_related, school_related == "Killed", "No"))
+
+msa_study %>%
+  tabyl(school_related)
+```
+
+## The final tidy data set
+
+```{r}
+msa_tidy <- msa_study %>%
+  select(case_id, victims, avg_age, school_related, gun_gen, shooter_race, 
+         fate_of_shooter, semi_used) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(case_id = as.character(case_id)) %>%
+  mutate(avg_age = as.numeric(avg_age)) %>% 
+  mutate(inv_victims = 1/victims)
+
+msa_tidy
+```
+
+# The Codebook
+
+Variable      | Type  | Description  
+---------: | :-------------: | --------------------------------------------
+`case_id`         | Character  | subject code (1-335)
+`victims`         | Quantitative | outcome variable, number of victims in the shooting
+`avg_age`         | Quantitative | average age of shooters that were involved, if more than one shooter average was taken
+`school_related`  | Binary | Yes or No, if the shooting was at a school
+`gun_gen`         | 4 level Cat. | General description of gun: shotgun, handgun, rifle, multiple guns
+`shooter_race`    | 4 level Cat. | Race of the shooter: white, black, asian, some other race
+`fate_of_shooter` | 3 level Cat. | the fate of the shooter: deceased, custody, escaped
+`semi_used`       | Binary | Yes or No, if the shooter used a semi-automatic weapon
+
+# Step 1. Deal With Missing Values
+
+In this step we:
+
+- identify all missing(NA) values in our tidy data set.
+- use simple imputation to impute values for the candidate predictors with NAs
+
+The imputed data set will be used for all subsequent work. 
+
+## Checking for other missing values
+
+```{r}
+colSums(is.na(msa_tidy))
+```
+
+The six variables with missing values are `avg_age`, `school_related`, `gun_gen`, `shooter_race`, `fate_of_shooter` and `semi_used`. No events our missing outcome variable, `victims`.
+
+```{r}
+msa_tidy %>%
+  count(is.na(gun_gen), is.na(school_related), is.na(shooter_race), is.na(avg_age), is.na(fate_of_shooter), is.na(semi_used))
+```
+
+There are 206 observations without any missing values. There are 129 variables that are missing at least one value from any of our six predictors.
+
+## Dropping Missing Values in `gun_gen`
+
+There are 129 events with missing values and 82 of these are missing `gun_gen`.  Since this is our key predictor and imputation may not be reliable for so many missing values, we will remove all events that are missing `gun_gen`. 
+
+```{r}
+msa_tidy <- msa_tidy %>%
+  filter(complete.cases(gun_gen))
+
+colSums(is.na(msa_tidy))
+```
+
+Now the four variables with missing values are `avg_age`, `shooter_race`, `fate_of_shooter` and `semi_used`.
+
+```{r}
+msa_tidy %>%
+  count(is.na(shooter_race), is.na(avg_age), is.na(fate_of_shooter), is.na(semi_used))
+```
+
+There are 206 observations that have no missing values across all our variables. There are 47 observations with at least one missing value in the four variables we identified above.  
+
+## Imputation Details
+
+We are using the `simputation` package to impute missing values of `fate_of_shooter`, `shooter_race`, `avg_age` and `semi_used`. 
+
+- `gun_gen` and `school_related` where used to predict all variables since they are complete and are important predictors for our research question.
+- We used `shooter_race` to help impute `avg_age` and `semi_used` because this variable is often considered during discussions of mass shootings.
+- The `fate_of_shooter` was used to help impute `semi_used` because the shooters intended fate may correspond to the weapons used during a mass shooting.
+
+Variable | NAs | Class | Imputation Approach | Imputation Model Predictors
+-------: | ---: | -----------: | -------------------------- | -------------------
+`fate_of_shooter` | `r sum(is.na(msa_tidy$fate_of_shooter))` | `r class(msa_tidy$fate_of_shooter)` | CART (decision tree) | `gun_gen`, `school_related`
+`shooter_race` | `r sum(is.na(msa_tidy$shooter_race))` | `r class(msa_tidy$shooter_race)` | CART (decision tree) | `gun_gen`, `school_related`
+`avg_age` | `r sum(is.na(msa_tidy$avg_age))` | `r class(msa_tidy$avg_age)` | Predictive Mean Matching | `gun_gen`, `school_related`, `shooter_race`
+`semi_used` | `r sum(is.na(msa_tidy$semi_used))` | `r class(msa_tidy$semi_used)` | CART (decision tree) | `gun_gen`, `school_related`, `shooter_race`, `fate_of_shooter`
+
+Here we create an imputed dataset named `msa_imputed` from `msa_tidy`.
+
+```{r}
+msa_imputed <- msa_tidy %>%
+  impute_cart(fate_of_shooter ~ gun_gen + school_related) %>%
+  impute_cart(shooter_race ~ gun_gen + school_related) %>%
+  impute_pmm(avg_age ~ gun_gen + school_related + shooter_race) %>%
+  impute_cart(semi_used ~ gun_gen + school_related + shooter_race + fate_of_shooter)
+
+colSums(is.na(msa_imputed))
+
+summary(msa_imputed)
+```
+
+# Step 2. Identify training and test samples
+
+Here, we are creating a training sample with a randomly selected 80% of the data (after imputing), and have the remaining 20% in a test sample using `set.seed`. 
+
+The training sample is named `msa_training` and the test sample is named `msa_test`. 
+
+- The `sample_frac` function will sample 80% of our data
+- We used 80%, since we only have 253 observations
+
+```{r}
+set.seed(4312019)
+
+msa_training <- msa_imputed %>% sample_frac(.80)
+msa_test <- anti_join(msa_imputed, msa_training, by = "case_id")
+
+dim(msa_imputed)
+dim(msa_training)
+dim(msa_test)
+```
+
+# Step 3. Summarize the outcome and the predictors
+
+Numerical summaries of each predictor variable and the outcome, as well as graphical summaries of the outcome variable will be created using the training sample. All missing values should now be imputed. From these summaries we determine if there are any issues, such as skew of the outcome variable.
+
+## Visualizing the Outcome Distribution
+
+Here, we are generating a histogram, a Normal Q-Q plot, and a boxplot with a violin plot to visualize the outcome variable, `victims`.
+
+```{r}
+p1 <- ggplot(msa_training, aes(x = victims)) +
+  geom_histogram(binwidth = 3,
+                 fill = "red",
+                 col = "white") +
+    theme_bw() 
+
+p2 <- ggplot(msa_training, aes(sample = victims)) +
+  geom_qq(col = "red") + geom_qq_line(col = "black") +
+    theme_bw() 
+
+p3 <- ggplot(msa_training, aes(x = "" , y = victims)) +
+  geom_violin(fill = "firebrick3", alpha = 0.3) +
+  geom_boxplot(fill = "firebrick3", width = 0.3,
+               outlier.color = "slateblue") +
+  theme_bw() +
+  labs(x = "") + coord_flip()
+
+p1 + p2 - p3 +
+  plot_layout(ncol = 1, height = c(3, 2)) + 
+  plot_annotation(title = "Distribution of Victims from Mass Shooting",
+         subtitle = paste0("202 mass shootings"))
+```
+
+The histogram shows significant right skew. The Q-Q plot shows issues with normality. The box plot shows multiple outliers. From the boxcox plot and the plots of our residuals vs fitted model that we run later in the paper, we see that a inverse transformation could help.
+
+```{r}
+p1 <- ggplot(msa_training, aes(x = 1/victims)) +
+  geom_histogram(binwidth = 0.03,
+                 fill = "red",
+                 col = "white") +
+    theme_bw() 
+
+p2 <- ggplot(msa_training, aes(sample = 1/victims)) +
+  geom_qq(col = "red") + geom_qq_line(col = "black") + 
+    theme_bw() 
+
+p3 <- ggplot(msa_training, aes(x = "" , y = 1/victims)) +
+  geom_violin(fill = "firebrick3", alpha = 0.3) +
+  geom_boxplot(fill = "firebrick3", width = 0.3,
+               outlier.color = "slateblue") +
+  theme_bw() +
+  labs(x = "") + coord_flip()
+
+p1 + p2 - p3 +
+  plot_layout(ncol = 1, height = c(3, 2)) + 
+  plot_annotation(title = "Distribution of the inverse of victims from mass shooting",
+         subtitle = paste0("202 mass shootings"))
+```
+
+With this transformation we see no outliers in the boxplot. 
+
+## Numerical Summary of the Outcome
+
+```{r}
+mosaic::favstats(~ victims, data = msa_training)
+```
+
+## Numerical Summaries of the Predictors
+
+```{r}
+msa_training %>%
+  select(-case_id, -victims) %>%
+  mosaic::inspect()
+```
+
+# Step 4. Scatterplot Matrix and Transformation Checking
+
+To understand the association between our our outcome `inv_victims` and all the predictator variables we will build and interpret a pair of scatterplot matrices.
+
+- A Box-Cox plot and the `powerTranform` function will be used to determine if transformation of our outcome is desireable.
+- Identify and explain any collinearity that seen between candidate predictors.
+
+## Scatterplot Matrix
+
+```{r message=FALSE}
+msa_training %>%
+  select(school_related, gun_gen, shooter_race, inv_victims) %>%
+  ggpairs(., title = "Scatterplot Matrix of First 3 Predictors")
+``` 
+
+```{r message=FALSE}
+msa_training %>%
+  select(fate_of_shooter, semi_used, avg_age, inv_victims) %>%
+  ggpairs(., title = "Scatterplot Matrix of Second 3 Predictors")
+```
+
+
+```{r}
+mosaic::favstats(inv_victims ~ gun_gen, data = msa_training)
+```
+
+- The scatterplot matrix shows that there is at least a single outlier for an event where the shooter was using "Multiple Guns"
+- In our training data, a handgun is used during mass shootings more than rifles, shotguns and multiple guns combined.
+- "Multiple guns" has the lowest mean of `inv_victims` and "Rifle" has the highest. The mean of `inv_victims` is close for "handgun" and "Rifle".
+
+## Collinearity Checking
+
+Since we only have one quantitative value, we cannot ascertain collinearity from the scatterplot matrices.
+
+## `boxCox` function to assess need for transformation of our outcome
+
+We will use the `boxCox` and `powerTransform` function to determine if a transformation is appropriate for our outcome, `victims`.
+
+```{r}
+msa_model_temp <- lm(victims ~ gun_gen + semi_used + shooter_race +
+                       school_related + fate_of_shooter + avg_age, data = msa_training)
+
+boxCox(msa_model_temp)
+```
+
+```{r}
+powerTransform(msa_model_temp)
+```
+
+The estimated power transformation is about -0.6. Of the recommended transformations from Tukey's ladder, this is closest to -1, or the inverse of our outcome. 
+
+```{r}
+plot(msa_model_temp, which=5)
+```
+
+Since our data contained many outliers, we used the Residuals vs Leverage plot to see if we needed to drop any outliers before we accepted this transformation. The outliers do not show significant influence on the model.
+
+# Step 5. Kitchen Sink Model Assessment
+
+Our "kitchen sink" linear regression model will describe the relationship between the inverse of our outcome and the main effects of each of our predictors. 
+
+## Fitting/Summarizing the Kitchen Sink model
+
+Our "kitchen sink" model predicts `inv_victims` using the predictors `gun_gen`, `semi_used`, `shooter_race`, `school_related`, `fate_of_shooter` and `avg_age`.
+
+```{r}
+msa_ksink <- lm(inv_victims ~ gun_gen + semi_used + shooter_race +
+                       school_related + fate_of_shooter + avg_age, data = msa_training)
+
+summary(msa_ksink)
+```
+
+## Interpreting the Model Summary
+
+```{r}
+glance(msa_ksink)
+```
+
+- According to the R^2^ statistic, this model accounts for 12.7% of the variation in `inv_victims` in our training sample of 202 events.
+- The residual standard error is 0.09 for the `inv_victims`. This suggests that 95% of the events in the training sample should have model predictions within about 0.18 of the actual `inv_victims`, and nearly all should within 0.27. The minimum residual value of our training sample looks reasonable. The minimum residual value of 0.16 suggests we may have outliers on the low end. 
+- The ANOVA F test p value (0.005) indicates a statistically significant amount of predictive value is accounted for by the model. 
+
+## Effect Sizes: Interpreting Coefficient Estimates
+
+```{r}
+tidy(msa_ksink, conf.int = TRUE, conf.level = 0.9)
+```
+
+Our model is 0.177 - 0.054 gun_genMultiple Guns - 0.005 gun_genRifle + 0.017 gun_genShotgun - 0.024 semi_used - 0.009 shooter_raceAsian American + 0.014 shooter_raceBlack American or African American + 0.0128 shooter_raceSome other race + 0.0204 school_related - 0.008 fate_of_shooterDesceased + 0.042 fate_of_shooterEscaped + 0.001 avg_age.
+
+This implies:
+
+- If a semi-automatic was used in mass shooting there would be a non-significant decrease of 0.024 (90% CI: -0.053, 0.005) `inv_victims` outcome variable. If we had two mass shootings where every other predictor was constant, but one shooter used a semi-automatic weapon and the other did not; we would expect a 0.024 decrease in the `inv_victims` among the mass shooting with a `semi_used`.
+
+The kitchen sink model also predicts:
+
+- Shooters that use multiple guns during mass shootings are estimated to have a statistically significant decrease of 0.054 `inv_victims` than those who use a handgun, shooters that use a rifle during mass shootings are estimated to have a decrease of 0.0049 `inv_victims` compared to those that use a handgun, and shooters that use a shotgun during mass shootings are estimated to have a increase of 0.0175 `inv_victims` compared to those that use a handgun. Neither a shotgun or a rifle compared to a handgun is a statistically significant change in `inv_victims`.
+- Mass shooters that are asian are estimated to have an decrease of 0.0087 `inv_victims` than those that are white, mass shooters that are black are estimated to have a increase of 0.014 `inv_victims` compared to those that are white, and mass shooters that are some other race are estimated to have an increase of 0.013 `inv_victims` compared to those that are white. None of the differences between the different races of mass shooters are statistically significant at the 10% level in the training sample.
+- Shooters that conduct a mass shooting in a school are estimated to have a non-significant increase of 0.02 (90% CI: -0.0065, 0.047) `inv_victims` compared to shooters that conduct a mass shooting that is not at a school.
+- Mass shooters that end up dying during the event are estimated to have a decrease of 0.0082 `inv_victims` compared to shooters that are arrested, and mass shooters that end up escaping are estimated to have a increase of 0.042 `inv_victims` compared to shooters that are arrested. None of the differences of the fate of the shooter are statistically significant at the 10% level in this training sample.
+- Mass shooters that have a 1 year increase in their average age are estimated to have a significant increase of 0.00094 (90% CI: 0.00008, 0.0018) `inv_victims`.
+
+## Collinearity in the kitchen sink model
+
+```{r}
+vif(msa_ksink)
+```
+
+There is no variance above 5 for collinearity, which means this should not be affecting our model.
+
+# Step 6. Build a Smaller Linear Model
+
+To find a model that will maximize predictive value within our training sample, we will use backwards stepwise elimination to produce a second linear regression model that is a using a subset of the model predictors in our "kitchen sink" model.
+
+- Our smaller model is 0.195 - 0.061 gun_genMultiple Guns - 0.010 gun_genRifle + 0.033 gun_genShotgun
+
+## Backwards Stepwise Elimination
+
+```{r}
+step(msa_ksink)
+```
+
+The backwards selection stepwise approach suggests using a linear model with `gun_gen` as the lone predictor.
+
+## Fitting the "small" model
+
+```{r}
+msa_small <- lm(inv_victims ~ gun_gen, data = msa_training)
+
+summary(msa_small)
+```
+
+# Step 7. Compare the Kitchen Sink and Small Model in the Training Sample
+
+Here, we will:
+
+- Compare our small model to our "kitchen sink" model within our training sample using adjusted R^2^, the residual standard error, AIC and BIC. 
+
+## Comparing models in the training set
+
+Combining the prediction models:
+
+-Two tibbles will be built containing the description of each model and key results from the `glance` package.
+-Then both models will be appended together by model name, called `msa_both`
+
+```{r}
+msa1 <- glance(msa_ksink) %>%
+  select(-logLik, -deviance) %>%
+  round(digits = 3) %>%
+  mutate(modelname = "kitchen sink")
+
+msa2 <- glance(msa_small) %>%
+  select(-logLik, -deviance) %>%
+  round(digits = 3) %>%
+  mutate(modelname = "small model")
+
+msa_both <- bind_rows(msa1, msa2) %>%
+  select(modelname, df, AIC, BIC, everything())
+
+msa_both
+```
+
+Comparing the two models together:
+
+- The small model performs better then the kitchen sink model in the training sample.
+- The AIC and BIC for the small model are both more negative then the kitchen sink model.
+- The adjusted R^2^ is slightly larger for the small model
+- The residual standard deviation (`sigma`) is the same for both models.
+
+# Step 8. Using the Two Models to predict the outcome in the Test Sample
+
+The two linear models will be used to predict the value of our outcome using the predictor values in the test sample.
+
+- The outcome will be back-transformed from an inverse to the normal value of victims, by taking the inverse of the inverse.
+- The models will be compared using mean squared prediction error, mean absolute prediction error, and max error.
+- Then the model that appears to predict better will be specified after all summaries and visualizations are complete.
+
+## Calculating the Prediction Errors
+
+### Kitchen Sink Model
+
+```{r}
+msa_test_ksink <- augment(msa_ksink, newdata = msa_test) %>%
+  mutate(modelname = "kitchen sink",
+         fit_victims = 1/(.fitted),
+         .resid = victims - fit_victims) %>%
+  select(case_id, modelname, victims, fit_victims, .resid,
+         gun_gen, shooter_race, school_related, avg_age,
+         fate_of_shooter, semi_used, everything())
+
+head(msa_test_ksink)
+```
+
+### Small Model
+
+```{r}
+msa_test_small <- augment(msa_small, newdata = msa_test) %>%
+  mutate(modelname = "small model",
+         fit_victims = 1/(.fitted),
+         .resid = victims - fit_victims) %>%
+  select(case_id, modelname, victims, fit_victims, .resid,
+         gun_gen, shooter_race, school_related, avg_age,
+         fate_of_shooter, semi_used, everything())
+
+head(msa_test_small)
+```
+
+### Combining test sample results from the two models
+
+```{r}
+msa_test_both <- union(msa_test_ksink, msa_test_small) %>%
+  arrange(case_id, modelname)
+
+msa_test_both
+```
+
+This tibble, includes predictions and residuals from both the kitchen sink and small model on the test data.
+Using this combined tibble, we can:
+
+1. Visualize the prediction errors from each model.
+2. Summarize these errors across each of the models.
+3. Identify the max error for each model.
+
+## Visualizing the prediction errors
+
+```{r}
+ggplot(msa_test_both, aes(x = .resid)) +
+  geom_histogram(binwidth = 1, fill = "dodgerblue",
+                 col = "white") +
+  labs(title = "Distribution of Residuals",
+       subtitle = "Among \"kitchen sink\" and \"small model\" from training data (n = 49)",
+       x = "residuals") +
+  theme_bw() +
+  facet_grid(modelname ~ .)
+```
+
+## Forming the table comparing the model predictions
+
+```{r}
+msa_test_both %>%
+  group_by(modelname) %>%
+  summarize(n = n(),
+            MAPE = mean(abs(.resid)),
+            MSPE = mean(.resid^2),
+            max_error = max(abs(.resid)))
+```
+
+Summary of this table:
+
+- Among the MPSE and max error the kitchen sink model performs slightly better, but among the MAPE the small model performs slightly better. Both these models seem very similar when looking at the MAPE, MSPE, and max errors.
+
+## Identifying the largest errors
+
+```{r}
+msa_temp1 <- msa_test_ksink %>%
+  filter(abs(.resid) == max(abs(.resid)))
+
+msa_temp2 <- msa_test_small %>%
+  filter(abs(.resid) == max(abs(.resid)))
+
+bind_rows(msa_temp1, msa_temp2)
+```
+
+- The same mass shooting event was fit the worst by both models.
+
+# Step 9. Select the better model and apply it to the entire data set
+
+The best fitting model will be selected based on steps 7 and 8 and apply to the entire data set.
+
+The best fitting model for this data is the kitchen sink model because:
+
+- When the two models were compared in step 7, most values leaned towards the small model.
+- When visualizing the distribution of the residuals neither model showed an advantage.
+- When comparing model predictions both models were similar in MAPE, MSPE, and max error
+- MAPE and max error were better in the kitchen sink model. 
+- After checking the Residuals vs Fitted plot for both models we saw that the kitchen sink model fit much better.
+
+## Fitting the Kitchen Sink Model to the Complete Data
+
+The small model was chosen and will be fit to the entire `msa_imputed` data set.
+
+```{r}
+msa_final <- lm(inv_victims ~ gun_gen + semi_used + shooter_race +
+                       school_related + fate_of_shooter + avg_age, data = msa_imputed)
+summary(msa_final)
+```
+
+At the 90% confidence level,it is statistically significant when multiple guns are used in a mass shooting event according to the t tests. The overall R^2^  and residual standard error are comparable. No coefficients change their signs. 
+
+## Residual Plots for the Kitchen Sink Model in the Complete Data Set
+
+Here the two key residual plots.
+
+```{r}
+par(mfrow = c(1,2))
+plot(msa_final, which = 1:2)
+```
+
+There are no apparent substantial violations of regression assumptions. There is neither a curve, nor a fan shape in the residuals vs. fitted values, and we see no evidence of important non-Normality in the Normal Q-Q plot.
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+

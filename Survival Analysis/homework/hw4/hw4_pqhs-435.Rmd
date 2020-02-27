@@ -1,0 +1,94 @@
+---
+title: "Joshua Froess: Homework 4 for 435"
+author: "Joshua Froess"
+date: "2/19/2020"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+---
+
+## Initial Setup and Loading Packages
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(comment = NA)
+options(width = 70)
+```
+
+```{r, message=FALSE}
+library(magrittr); library(janitor); library(here)
+library(survival); library(broom); library(MASS)
+library(tidyverse)
+```
+
+## Load Data
+
+The myeloma data is loaded into R and the first 6 observations for the variables is seen below.
+
+```{r}
+myeloma <- read.csv(here("data", "myeloma.csv")) %>%
+  clean_names()
+
+head(myeloma)
+```
+
+# Cox Regression Model
+
+A Cox regression model is built using every variable available in the data set to account for confounders. This model will narrowed down using model selection techniques to see what the best model available is. The estimates were also exponentiated to show them as hazard ratios to make them more interpretable.
+
+```{r}
+model_1 <- coxph(Surv(surv_time, status) ~ sex +
+        age + bun + ca + hb + pcells + protein, data = myeloma)
+
+tidy(model_1, exponentiate = TRUE) %>%
+  knitr::kable(digits = 3)
+```
+
+## Forward Selection
+
+The forward selection technique starts with 0 covariates and works its way forward to find the best possible model using AIC as the main criteria for this. The lower the AIC value the better the model will be. The forward selection technique has picked the original model with all 7 covariates as the best model. Other techniques will be done before the final model is selected.
+
+```{r}
+forward_model <- stepAIC(model_1, direction = "forward", trace = FALSE)
+
+summary(forward_model)
+```
+
+
+## Backward Selection
+
+Backwords selection starts with all 7 of the covariates and works its way backwards eliminating covariates to try and find the best possible model. This also uses AIC as its main criteria for making this decision and the smaller the value the better. This model decided that the covariates `bun`, `hb`, and `protein` were the only covariates needed in this model.
+
+```{r}
+backward_model <- stepAIC(model_1, direction = "backward", trace = FALSE)
+
+summary(backward_model)
+```
+
+
+## Stepwise Selection
+
+Stepwise selection uses a combination of both backwards and forwards selection techniques to determine the best model with these 7 covariates. This also uses AIC as the main criteria for making its decision for what is the best possible model. The stepwise selection determined that a model using `bun`, `hb`, and `protein` is the best possible model for predicting the outcome.
+
+```{r}
+step(model_1)
+```
+
+# Final Model
+
+The final model was picked using the AIC criteria from both the stepwise selection and the backwards selection. These models suggested using the variables `bun`, `hb`, and `protein` to predict death in myeloma patients. This model has also been exponentiated so that the values being seen are in hazard ratios. The only variable that is statistically detectable at the 95% level is the `bun` variable. This means a patient that has every other covariate the same as another patient, but has a 1 unit increase in `bun` would be expected to have 22% higher odds of dying from myeloma than the other patient.
+
+```{r}
+model_2 <- coxph(Surv(surv_time, status) ~ bun + hb + protein,
+                 data = myeloma)
+
+tidy(model_2, exponentiate = TRUE) %>%
+  knitr::kable(digits = 3)
+```
+
+## Session Information
+
+```{r}
+sessioninfo::session_info()
+```
+
